@@ -1,0 +1,18 @@
+# debug/ folder — development scratchpad
+# --------------------------------------
+# This directory is for local debugging, session logs, and temporary notes.
+# It is intentionally ignored by the main project .gitignore but we keep
+# this nested file for clarity and in case someone clones with --depth 1.
+
+# Session artifacts
+*.session
+*.pid
+*.trace
+
+# Temporary dumps
+dump/
+scratch/
+
+# Local environment overrides
+.env.local
+config.local.json
