@@ -10,7 +10,7 @@ Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu / De
 This project provides an automated installer that:
 1. Installs Wine, Winetricks, and all required dependencies.
 2. Creates a **clean** Wine prefix at `~/.Microsoft_Office_365`.
-3. Opens your browser to [office.com](https://www.office.com) so you can **download the official Office installer** using your own Microsoft 365 subscription.
+3. Opens your browser to [microsoft.com/en-us/microsoft-365/download-office](https://www.microsoft.com/en-us/microsoft-365/download-office) so you can **download the official Office Deployment Tool (ODT)** and use it to install Office.
 4. Installs that official binary into the Wine prefix.
 5. Creates app menu entries, file associations, and launchers for **Word, Excel, PowerPoint, Outlook, Access, Publisher, OneNote, and Teams**.
 
@@ -30,13 +30,16 @@ This project provides an automated installer that:
    git clone https://github.com/aldobox/Office365LinuxInstaller.git
    cd Office365LinuxInstaller
    ```
-2. **Run the installer:**
+2. **Download the Office Deployment Tool (ODT):**
+   - Visit [microsoft.com/en-us/microsoft-365/download-office](https://www.microsoft.com/en-us/microsoft-365/download-office)
+   - Click **"Download for Windows"**
+   - Save `OfficeSetup.exe` to your `~/Downloads/` folder (~7 MB)
+3. **Run the installer:**
    ```bash
    ./install.sh
    ```
-3. Follow the on-screen prompts. When asked, sign in at [office.com](https://www.office.com) and download **Office 365 apps**.
-4. Save the downloaded `Setup.exe` (or `OfficeSetup.exe`) to your `~/Downloads/` folder.
-5. Return to the terminal and press **Enter** to continue.
+4. The script will detect your system state, install only missing components, download Office binaries (~4-5 GB), and install them into a clean Wine prefix.
+5. After installation, the script will ask if you want to delete the download cache to save disk space.
 6. Once complete, find your Office apps in the system application menu.
 
 ## First Launch
