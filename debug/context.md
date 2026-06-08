@@ -19,7 +19,7 @@ This project was born from a user need to run Microsoft Office 365 desktop appli
 Every decision in this codebase prioritizes legal and ethical compliance:
 - **No redistribution:** We do not bundle, host, or link to Microsoft Office binaries.
 - **No cracks:** `ohook`, KMS emulators, keygens, or any activation circumvention tools are strictly absent.
-- **User-supplied installer:** The script pauses and opens the user's browser to `https://www.office.com`. The user signs in with their Microsoft 365 account, downloads the official `Setup.exe`, and the script then runs *that* file inside the clean Wine prefix.
+- **User-supplied installer:** The script pauses and opens the user's browser to `https://www.microsoft.com/en-us/microsoft-365/download-office`. The user downloads the **Office Deployment Tool (ODT)** (`OfficeSetup.exe`), and the script then runs it with explicit `/download` and `/configure` commands inside the clean Wine prefix.
 
 ### 2.2 Idempotency and Cleanliness
 The installer is designed to be runnable multiple times without leaving stale state:
@@ -56,8 +56,13 @@ The installer modifies system directories (`/usr/share/applications/`, `/usr/sha
 │  ├── User signs in + downloads Setup.exe                   │
 │  └── Script waits for Enter key                            │
 ├─────────────────────────────────────────────────────────────┤
-│  Phase D: Official Installer Execution                    │
-│  ├── wine ~/Downloads/Setup.exe                           │
+│  Phase D: Official Installer Execution (ODT)              │
+│  ├── Generate /tmp/o365_configuration.xml                 │
+│  ├── wine OfficeSetup.exe /download config.xml            │
+│  │   └── Downloads ~4-5 GB to ~/Downloads/OfficeCache/   │
+│  ├── [Cache check] Skip /download if cache exists         │
+│  ├── wine OfficeSetup.exe /configure config.xml           │
+│  │   └── Installs from cache into Wine prefix              │
 │  └── Verify: WINWORD.EXE exists at expected path          │
 ├─────────────────────────────────────────────────────────────┤
 │  Phase E: Wrappers                                        │
@@ -97,6 +102,16 @@ Each wrapper (`wrappers/word365.sh`, etc.) is a minimal, deterministic launcher:
 
 The `teams365.sh` wrapper includes a fallback chain because Teams has multiple possible installation paths depending on the Office deployment channel.
 
+### 3.4 ODT-Based Installation (v1.0.101+)
+
+As of v1.0.101, Phase D was completely rewritten to support the **Office Deployment Tool (ODT)** (`OfficeSetup.exe`) rather than a self-running consumer installer:
+
+1. **Generate `configuration.xml`** on-the-fly inside `/tmp/` — specifies `O365ProPlusRetail`, `en-GB`, silent install.
+2. **Run `wine OfficeSetup.exe /download configuration.xml`** — downloads ~4-5 GB of Office binaries to `~/Downloads/OfficeCache/`.
+3. **Cache detection:** If `~/Downloads/OfficeCache/` already exists and is non-empty, the `/download` step is skipped entirely.
+4. **Run `wine OfficeSetup.exe /configure configuration.xml`** — installs from the local cache into `~/.Microsoft_Office_365`.
+5. **Cleanup prompt (Phase I):** After the test launch, a `[y/n]` prompt asks whether to delete `OfficeCache/` + temp files.
+
 ---
 
 ## 4. Compatibility Matrix
@@ -128,8 +143,8 @@ The `teams365.sh` wrapper includes a fallback chain because Teams has multiple p
 - `build-essential`, `gcc-multilib`, `g++-multilib` — Compilation toolchain (for Wine gecko/mono builds if needed)
 
 ### 5.2 User-Supplied
-- **Microsoft 365 subscription** (Personal, Family, or Business) — required to obtain the official installer from office.com.
-- **Official `Setup.exe` or `OfficeSetup.exe`** — downloaded by the user, not provided by this project.
+- **Microsoft 365 subscription** (Personal, Family, or Business) — required to activate Office after installation.
+- **Official ODT `OfficeSetup.exe`** — downloaded by the user from Microsoft's download page, not provided by this project.
 
 ---
 
@@ -137,12 +152,12 @@ The `teams365.sh` wrapper includes a fallback chain because Teams has multiple p
 
 ### 6.1 What We Protect Against
 - **Piracy infiltration:** By never touching pre-activated binaries, we eliminate the risk of installing cracked software or activation malware.
-- **Supply-chain attacks:** The user downloads the installer directly from Microsoft's HTTPS endpoint (`office.com`), not from a third-party mirror.
+- **Supply-chain attacks:** The user downloads the ODT directly from Microsoft's HTTPS endpoint (`microsoft.com/en-us/microsoft-365/download-office`), not from a third-party mirror.
 - **Privilege escalation:** The script uses `sudo` only for specific, bounded operations (package install, system icon/desktop updates). It does not run `wine` or the Office installer as root.
 
 ### 6.2 Known Limitations
 - **Wine is not a sandbox:** A compromised Windows binary running under Wine has the same filesystem access as the Linux user. This is a Wine architectural limitation, not something our installer can mitigate.
-- **Microsoft's installer behavior:** The official `Setup.exe` may install background services (e.g., Office Click-to-Run). These run inside Wine and can be terminated with `uninstall.sh`.
+- **Microsoft's installer behavior:** The ODT downloads and installs Office binaries. The Click-to-Run service runs inside Wine and can be terminated with `uninstall.sh`.
 
 ---
 
@@ -154,7 +169,7 @@ The `teams365.sh` wrapper includes a fallback chain because Teams has multiple p
 - [ ] Support detecting `OfficeSetup.exe` in additional download paths (`~/Downloads/Office/`, browser-specific subdirectories)
 
 ### 7.2 Mid-Term (v1.2.x)
-- [ ] Add `config.xml` support for Office Deployment Tool (ODT) users who prefer command-line installation over GUI Setup.exe
+- [x] Add `config.xml` support for Office Deployment Tool (ODT) — **COMPLETED in v1.0.101**
 - [ ] Integrate `winetricks` dotnet48 / corefonts checks as hard prerequisites (currently warnings)
 - [ ] Provide `.deb` packaging for one-shot `dpkg -i` installation
 
@@ -170,13 +185,13 @@ The `teams365.sh` wrapper includes a fallback chain because Teams has multiple p
 ### 8.1 Before Every Release
 1. Run `bash -n install.sh && bash -n uninstall.sh`
 2. Test on a clean VM (Ubuntu 22.04 LTS recommended)
-3. Verify `office.com` sign-in flow still opens correctly
+3. Verify `microsoft.com/en-us/microsoft-365/download-office` opens correctly
 4. Check that `uninstall.sh` leaves no files in `/usr/share/applications/`, `/usr/share/icons/`, `/opt/launchers/`
 5. Update version string in `install.sh`, `uninstall.sh`, and `AGENTS.md`
 
 ### 8.2 If a User Reports "My Office Disappeared After Reboot"
 - Likely cause: `wineserver` or `wine` process was killed uncleanly, corrupting the prefix registry.
-- Resolution: `./install.sh` again — it rebuilds the prefix fresh and reinstalls into the existing Office directory (which is idempotent for Microsoft's installer).
+- Resolution: `./install.sh` again — it rebuilds the prefix fresh and re-runs ODT `/configure` (which is idempotent for local cache installs).
 
 ### 8.3 If Icons Do Not Appear in the Menu
 - Run `sudo gtk-update-icon-cache /usr/share/icons/hicolor/`
@@ -198,4 +213,4 @@ The `teams365.sh` wrapper includes a fallback chain because Teams has multiple p
 
 ---
 
-*Document version: 1.0.000 — Last updated: 2026-06-08*
+*Document version: 1.0.101 — Last updated: 2026-06-09*

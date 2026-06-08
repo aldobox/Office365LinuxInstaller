@@ -45,7 +45,7 @@ phase_a_dependencies() {
     # Printing support
     sudo apt-get install -y --no-install-recommends \
         cups-daemon cups-client printer-driver-all \
-        system-config-printer cups-pdf printer-driver-cups-pdf || true
+        system-config-printer printer-driver-cups-pdf || true
 
     # MSIX/MSI tooling
     sudo apt-get install -y --no-install-recommends msitools || true
