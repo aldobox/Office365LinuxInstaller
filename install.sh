@@ -133,24 +133,23 @@ phase_c_get_installer() {
     echo "============================================================================"
     echo " IMPORTANT: You must download the official Microsoft Office installer."
     echo ""
-    echo " 1. We will open your web browser to https://www.office.com"
-    echo " 2. Sign in with your Microsoft 365 account (subscription required)."
-    echo " 3. Click 'Install Office' (top right) and choose 'Office 365 apps'."
-    echo " 4. Save the downloaded file (usually 'Setup.exe' or 'OfficeSetup.exe')"
+    echo " 1. We will open your web browser to https://www.microsoft.com/en-us/microsoft-365/download-office"
+    echo " 2. Click 'Download for Windows' to get the Office Deployment Tool (ODT)."
+    echo " 3. Save the downloaded file (usually 'OfficeSetup.exe')"
     echo "    to your Downloads folder: ${DOWNLOADS}"
-    echo " 5. Return here and press Enter to continue."
+    echo " 4. Return here and press Enter to continue."
     echo "============================================================================"
     echo
 
     # Attempt to open browser
     if command -v xdg-open &>/dev/null; then
-        xdg-open "https://www.office.com" &
+        xdg-open "https://www.microsoft.com/en-us/microsoft-365/download-office" &
     elif command -v firefox &>/dev/null; then
-        firefox "https://www.office.com" &
+        firefox "https://www.microsoft.com/en-us/microsoft-365/download-office" &
     elif command -v google-chrome &>/dev/null; then
-        google-chrome "https://www.office.com" &
+        google-chrome "https://www.microsoft.com/en-us/microsoft-365/download-office" &
     else
-        warn "Could not detect a browser. Please manually open https://www.office.com"
+        warn "Could not detect a browser. Please manually open https://www.microsoft.com/en-us/microsoft-365/download-office"
     fi
 
     wait_for_enter
@@ -173,15 +172,46 @@ phase_c_get_installer() {
     INSTALLER_PATH="${installer}"
 }
 
-# ---- Phase D: Run Official Installer in Wine --------------------------------
+# ---- Phase D: Run Official Installer in Wine (ODT-aware) --------------------
 phase_d_install_office() {
     info "Phase D: Installing official Office into Wine prefix..."
 
     export WINEPREFIX="${WINE_PREFIX}"
     export WINEARCH="win64"
 
-    info "Running: wine ${INSTALLER_PATH} ..."
-    wine "${INSTALLER_PATH}" || die "Office installer failed. Check output above."
+    # Generate ODT configuration XML
+    local config_path="/tmp/o365_configuration.xml"
+    cat > "${config_path}" <<EOF
+<Configuration>
+  <Add OfficeClientEdition="64" Channel="Current">
+    <Product ID="O365ProPlusRetail">
+      <Language ID="en-GB" />
+    </Product>
+  </Add>
+  <Display Level="None" AcceptEULA="TRUE" />
+  <Property Name="AUTOACTIVATE" Value="0" />
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+  <Property Name="SharedComputerLicensing" Value="0" />
+  <Property Name="PinIconsToTaskbar" Value="FALSE" />
+  <Updates Enabled="TRUE" Channel="Current" />
+</Configuration>
+EOF
+
+    local office_cache="${DOWNLOADS}/OfficeCache"
+
+    # Check if download cache already exists
+    if [ -d "${office_cache}" ] && [ "$(ls -A "${office_cache}" 2>/dev/null | wc -l)" -gt 0 ]; then
+        info "Office download cache found at ${office_cache}. Skipping /download."
+    else
+        info "Downloading Office binaries (~4-5 GB). This will take time..."
+        mkdir -p "${office_cache}"
+        wine "${INSTALLER_PATH}" /download "${config_path}" || die "ODT /download failed."
+        info "Download complete."
+    fi
+
+    # Install from cache into prefix
+    info "Installing Office from cache into Wine prefix..."
+    wine "${INSTALLER_PATH}" /configure "${config_path}" || die "ODT /configure failed."
 
     # Verify installation
     local word_path="${WINE_PREFIX}/drive_c/Program Files/Microsoft Office/root/Office16/WINWORD.EXE"
@@ -270,6 +300,28 @@ phase_h_test() {
     info "Test complete. If no severe errors were shown above, installation is functional."
 }
 
+# ---- Phase I: Cleanup Prompt -------------------------------------------------
+phase_i_cleanup() {
+    local office_cache="${DOWNLOADS}/OfficeCache"
+    local tmp_config="/tmp/o365_configuration.xml"
+
+    echo
+    read -rp "Delete Office download cache and temp files to save disk space? [y/n]: " answer
+    if [[ "${answer}" =~ ^[Yy]$ ]]; then
+        if [ -d "${office_cache}" ]; then
+            rm -rf "${office_cache}"
+            info "Office cache deleted."
+        fi
+        if [ -f "${tmp_config}" ]; then
+            rm -f "${tmp_config}"
+        fi
+        # Also clean Winetricks temp
+        rm -f /tmp/winetricks.* 2>/dev/null || true
+    else
+        info "Cache preserved at ${office_cache}."
+    fi
+}
+
 # ---- Main Orchestrator ------------------------------------------------------
 main() {
     echo "========================================"
@@ -286,6 +338,7 @@ main() {
     phase_f_desktop_integration
     phase_g_fonts_mime
     phase_h_test
+    phase_i_cleanup
 
     echo
     echo "========================================"
