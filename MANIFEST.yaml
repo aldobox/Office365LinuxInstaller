@@ -1,0 +1,236 @@
+---
+# Office365LinuxInstaller — Project Manifest
+# Version: 1.0.101
+# Last Updated: 2026-06-09
+# Format: YAML 1.2
+
+project:
+  name: Office365LinuxInstaller
+  version: "1.0.101"
+  description: "Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu/Debian"
+  license: MIT
+  repository: "https://github.com/aldobox/Office365LinuxInstaller"
+  branch: main
+
+structure:
+  root:
+    - file: install.sh
+      purpose: "Main installer orchestrator"
+      description: "Dependencies → Wine prefix → ODT /download + /configure → system integration"
+      executable: true
+
+    - file: uninstall.sh
+      purpose: "Complete removal script"
+      description: "Kills processes → deletes prefix → removes system files"
+      executable: true
+
+    - file: README.md
+      purpose: "Project overview and quick-start guide"
+      audience: end-user
+
+    - file: LICENSE
+      purpose: "MIT License text"
+      editable: false
+
+    - file: MANIFEST.yaml
+      purpose: "This file — canonical directory structure documentation"
+      editable: true
+
+    - file: AGENTS.md
+      purpose: "AI agent context and contribution rules"
+      description: "Build steps, critical rules, architecture for future AI maintainers"
+
+    - file: CONTRIBUTING.md
+      purpose: "Contribution guidelines"
+      description: "Code style, issue templates, PR process for external contributors"
+
+    - file: SECURITY.md
+      purpose: "Security policy"
+      description: "Vulnerability reporting procedure and supported versions"
+
+    - file: CODE_OF_CONDUCT.md
+      purpose: "Community standards"
+      description: "Behavior expectations for contributors"
+
+    - file: .gitignore
+      purpose: "Git exclusions"
+      excludes:
+        - "logs, temp files"
+        - "Wine backups"
+        - "OfficeSetup.exe"
+        - "OfficeCache/"
+        - "IDE configs"
+
+  directories:
+    - name: wrappers/
+      purpose: "Bash launcher scripts"
+      description: "8 scripts exporting WINEPREFIX and exec-ing Office binaries"
+      files:
+        - word365.sh
+        - excel365.sh
+        - powerpoint365.sh
+        - outlook365.sh
+        - access365.sh
+        - publisher365.sh
+        - onenote365.sh
+        - teams365.sh
+
+    - name: desktops/
+      purpose: "XFCE/GNOME/KDE .desktop menu entries"
+      description: "8 .desktop files with MIME associations"
+      files:
+        - word365.desktop
+        - excel365.desktop
+        - powerpoint365.desktop
+        - outlook365.desktop
+        - access365.desktop
+        - publisher365.desktop
+        - onenote365.desktop
+        - teams365.desktop
+
+    - name: icons/
+      purpose: "256x256 SVG placeholder icons"
+      description: "8 brand-color SVG placeholders"
+      files:
+        - word365.svg
+        - excel365.svg
+        - powerpoint365.svg
+        - outlook365.svg
+        - access365.svg
+        - publisher365.svg
+        - onenote365.svg
+        - teams365.svg
+
+    - name: docs/
+      purpose: "Extended documentation"
+      files:
+        - troubleshooting.md
+
+    - name: debug/
+      purpose: "Development scratchpad"
+      description: "Not tracked by main .gitignore"
+      files:
+        - .gitignore
+        - engineerlog.md
+        - context.md
+
+runtime_paths:
+  - path: ~/.Microsoft_Office_365
+    created_by: install.sh Phase B
+    removed_by: uninstall.sh
+    contents: "Wine prefix (registry, drive_c/, dosdevices)"
+    size_estimate: "1-2 GB"
+
+  - path: /opt/launchers/
+    created_by: install.sh Phase E
+    removed_by: uninstall.sh
+    contents: "Bash wrapper scripts (*365.sh)"
+    requires_sudo: true
+
+  - path: /usr/share/applications/
+    created_by: install.sh Phase F
+    removed_by: uninstall.sh
+    contents: ".desktop menu entries"
+    requires_sudo: true
+
+  - path: /usr/share/icons/hicolor/256x256/apps/
+    created_by: install.sh Phase F
+    removed_by: uninstall.sh
+    contents: "SVG icons"
+    requires_sudo: true
+
+  - path: /usr/share/fonts/Windows/
+    created_by: install.sh Phase G
+    removed_by: uninstall.sh
+    contents: "Bundled Microsoft-compatible fonts"
+    requires_sudo: true
+
+  - path: ~/Downloads/OfficeCache/
+    created_by: install.sh Phase D (/download)
+    removed_by: "uninstall.sh or Phase I prompt"
+    contents: "ODT-downloaded Office binaries"
+    size_estimate: "4-5 GB"
+
+  - path: /tmp/o365_configuration.xml
+    created_by: install.sh Phase D
+    removed_by: "uninstall.sh or Phase I prompt"
+    contents: "Auto-generated ODT configuration"
+
+  - path: ~/.cache/winetricks/
+    created_by: winetricks during Phase B
+    removed_by: uninstall.sh
+    contents: "Cached Windows libraries (fonts, DLLs)"
+    size_estimate: "1-2 GB"
+
+version_history:
+  - version: "1.0.000"
+    date: "2026-06-08"
+    changes:
+      - "Initial release"
+      - "Browser-prompt installer workflow"
+      - "Wine prefix setup"
+      - "Launchers and MIME associations"
+
+  - version: "1.0.101"
+    date: "2026-06-09"
+    changes:
+      - "ODT-aware Phase D (/download + /configure)"
+      - "Cache detection for Office binaries"
+      - "Cleanup prompt [y/n] at end of installation"
+      - "URL fix to microsoft.com/en-us/microsoft-365/download-office"
+      - "Removed obsolete cups-pdf package"
+
+maintenance_rules:
+  - "Update MANIFEST.yaml when files/folders are added, removed, or renamed"
+  - "Append to debug/engineerlog.md after every significant session"
+  - "Edit debug/context.md when architecture or dependencies change"
+  - "Update version_history in this file for every release"
+  - "Run 'bash -n install.sh && bash -n uninstall.sh' before every commit"
+
+file_metadata:
+  - path: install.sh
+    type: bash
+    lines: 355
+    shebang: "#!/usr/bin/env bash"
+    strict_mode: "set -euo pipefail"
+    phases:
+      - A: dependencies
+      - B: wine_prefix
+      - C: browser_prompt
+      - D: odt_download_configure
+      - E: launchers
+      - F: desktop_integration
+      - G: fonts_mime
+      - H: test_launch
+      - I: cleanup_prompt
+
+  - path: uninstall.sh
+    type: bash
+    lines: 85
+    shebang: "#!/usr/bin/env bash"
+    actions:
+      - kill_wine_processes
+      - remove_wine_prefix
+      - remove_launchers
+      - remove_desktop_files
+      - remove_icons
+      - remove_fonts
+      - reset_mime_defaults
+
+  - path: debug/engineerlog.md
+    type: markdown
+    format: "Session log with changes, issues, service state"
+    append_only: true
+
+  - path: debug/context.md
+    type: markdown
+    sections:
+      - genesis
+      - design_philosophy
+      - technical_architecture
+      - compatibility_matrix
+      - dependencies
+      - security
+      - future_evolution
+      - operational_notes
+      - glossary
