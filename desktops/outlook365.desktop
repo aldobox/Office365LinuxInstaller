@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Outlook 365
+Comment=Microsoft Outlook via Wine
+Exec=/opt/launchers/outlook365.sh %F
+Icon=outlook365
+Type=Application
+Categories=Office;Email;Calendar;
+MimeType=application/vnd.ms-outlook;
+StartupNotify=true
+Terminal=false

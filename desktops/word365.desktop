@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Word 365
+Comment=Microsoft Word via Wine
+Exec=/opt/launchers/word365.sh %F
+Icon=word365
+Type=Application
+Categories=Office;WordProcessor;
+MimeType=application/msword;application/vnd.openxmlformats-officedocument.wordprocessingml.document;
+StartupNotify=true
+Terminal=false

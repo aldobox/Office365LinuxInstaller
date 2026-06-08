@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Excel 365
+Comment=Microsoft Excel via Wine
+Exec=/opt/launchers/excel365.sh %F
+Icon=excel365
+Type=Application
+Categories=Office;Spreadsheet;
+MimeType=application/vnd.ms-excel;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;text/csv;
+StartupNotify=true
+Terminal=false

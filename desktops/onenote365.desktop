@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=OneNote 365
+Comment=Microsoft OneNote via Wine
+Exec=/opt/launchers/onenote365.sh %F
+Icon=onenote365
+Type=Application
+Categories=Office;TextEditor;
+MimeType=application/vnd.onenote;
+StartupNotify=true
+Terminal=false

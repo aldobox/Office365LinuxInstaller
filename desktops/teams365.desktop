@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Teams 365
+Comment=Microsoft Teams via Wine
+Exec=/opt/launchers/teams365.sh %F
+Icon=teams365
+Type=Application
+Categories=Office;Network;Chat;
+MimeType=x-scheme-handler/msteams;
+StartupNotify=true
+Terminal=false

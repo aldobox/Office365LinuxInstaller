@@ -1,0 +1,35 @@
+# Compiled / generated
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Wine prefix backups (large, user-specific)
+*.Microsoft_Office_365.bak/
+*.Microsoft_Office_365.old/
+
+# Downloaded Office installer (user-provided, not redistributable)
+Setup.exe
+OfficeSetup.exe
+*.exe
+
+# Fonts (if user adds their own)
+fonts/*.ttf
+fonts/*.TTF
+fonts/*.ttc
+
+# IDE
+.vscode/
+.idea/
+
+# Packaging artifacts
+dist/
+build/
+*.tar.zst
+*.tar.gz
+*.zip

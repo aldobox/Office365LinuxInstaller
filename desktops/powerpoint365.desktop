@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=PowerPoint 365
+Comment=Microsoft PowerPoint via Wine
+Exec=/opt/launchers/powerpoint365.sh %F
+Icon=powerpoint365
+Type=Application
+Categories=Office;Presentation;
+MimeType=application/vnd.ms-powerpoint;application/vnd.openxmlformats-officedocument.presentationml.presentation;
+StartupNotify=true
+Terminal=false

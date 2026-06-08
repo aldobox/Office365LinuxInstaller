@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Publisher 365
+Comment=Microsoft Publisher via Wine
+Exec=/opt/launchers/publisher365.sh %F
+Icon=publisher365
+Type=Application
+Categories=Office;Publishing;
+MimeType=application/vnd.ms-publisher;
+StartupNotify=true
+Terminal=false

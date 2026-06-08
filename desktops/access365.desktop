@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Access 365
+Comment=Microsoft Access via Wine
+Exec=/opt/launchers/access365.sh %F
+Icon=access365
+Type=Application
+Categories=Office;Database;
+MimeType=application/vnd.ms-access;
+StartupNotify=true
+Terminal=false
