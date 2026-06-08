@@ -325,7 +325,7 @@ phase_i_cleanup() {
 # ---- Main Orchestrator ------------------------------------------------------
 main() {
     echo "========================================"
-    echo "  Office365LinuxInstaller v1.0.000"
+    echo "  Office365LinuxInstaller v1.0.101"
     echo "  Clean Office 365 via Wine"
     echo "========================================"
     echo

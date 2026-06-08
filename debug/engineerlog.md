@@ -106,6 +106,32 @@ rm -rf ~/Desktop/Development/Apps/Office-365-Linux
 rm ~/.local/share/applications/mso365-installer.desktop
 ```
 
+## 2026-06-09 — v1.0.101 ODT Patch Release
+**Author:** aldobox
+**Scope:** `install.sh` only (Phase D + Phase I + URL updates)
+**Trigger:** User discovered `OfficeSetup.exe` is actually the Office Deployment Tool (ODT), not a self-running installer. Running it bare under Wine caused COM/DCOM crashes (`0x80004002`).
+
+#### Changes
+- [x] Rewrote `phase_d_install_office()` to generate ODT `configuration.xml` on-the-fly (`en-GB`, `O365ProPlusRetail`, silent install)
+- [x] Added cache detection: skips `/download` if `~/Downloads/OfficeCache/` already exists and is non-empty
+- [x] Phase D now runs two explicit ODT commands:
+  1. `wine OfficeSetup.exe /download /tmp/o365_configuration.xml`
+  2. `wine OfficeSetup.exe /configure /tmp/o365_configuration.xml`
+- [x] Added `phase_i_cleanup()` — terminal prompt `[y/n]` at end of installation to delete `OfficeCache/` + temp files
+- [x] Updated all browser URLs from `office.com` to `microsoft.com/en-us/microsoft-365/download-office`
+- [x] Updated Phase C prompt text to match ODT download instructions
+
+#### Issues Found / Fixed
+- **Issue:** Running `wine OfficeSetup.exe` without arguments crashed Wine with `err:ole:marshal_object Failed to create an IRpcStubBuffer`.
+  - Root cause: The ODT has no GUI mode under Wine; it requires `/download` or `/configure` flags.
+  - Fix: Explicit ODT command-line workflow with XML configuration.
+
+#### Service State
+- No persistent services. Pure Bash/Wine user-space tool.
+- Version bumped from `1.0.000` → `1.0.101`
+
+---
+
 ## Notes for Future Agents
 
 - Always verify `bash -n` on any `.sh` file before committing.
