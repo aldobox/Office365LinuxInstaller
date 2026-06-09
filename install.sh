@@ -28,42 +28,19 @@ FONT_DIR="/usr/share/fonts/Windows"
 LAUNCHER_DIR="/opt/launchers"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Isolated Wine 9.7 paths (populated in phase_0_detect_wine)
+ISOLATED_WINE_DIR=""
+ISOLATED_WINE_BIN=""
+WINE_CMD="wine"
+WINESERVER_CMD="wineserver"
+WINEPATH_CMD="winepath"
+NEEDS_ISOLATED_WINE=false
+
 # ---- Helpers ----------------------------------------------------------------
 info()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 warn()  { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
 error() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 die()   { error "$*"; exit 1; }
-
-# ---- Wine Compatibility Check -----------------------------------------------
-# Detect Wine version early and abort if WoW64 mode (Wine 9.0+) is found.
-# This saves the user from downloading 4-5 GB of Office files that can never be installed.
-check_wine_compatibility() {
-    if ! command -v wine >/dev/null 2>&1; then
-        info "Wine not found. Installing Wine, wine32, and winetricks via apt..."
-        run_apt_install wine wine32 winetricks
-    fi
-
-    local wine_version
-    wine_version=$(wine --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1)
-
-    if [[ -n "$wine_version" && "$(printf '%s\n' "9.0" "$wine_version" | sort -V | head -n1)" == "9.0" ]]; then
-        # Wine >= 9.0 — check for WoW64
-        local wine_build_info
-        wine_build_info=$(wine --version 2>/dev/null)
-        if echo "$wine_build_info" | grep -qi "wow64\|staging\|repack"; then
-            error "Wine $wine_version uses WoW64 mode."
-            error "Office 365 Click-to-Run cannot install via modern Wine."
-            echo
-            info "Options:"
-            echo "  (1) Use LinOffice / WinApps (VM-based, seamless)"
-            echo "  (2) Use CodeWeavers CrossOver (paid, works)"
-            echo "  (3) Build Wine 9.7 from source (unsupported, fragile)"
-            echo
-            read -rp "Press Enter to exit..."
-            exit 1
-        fi
-    fi
-}
 
 # Drop privileges when running as root (e.g., via sudo bash install.sh)
 run_as_user() {
@@ -77,6 +54,57 @@ run_as_user() {
         "$@"
     fi
 }
+
+# ---- Phase 0: Wine Version Detection ---------------------------------------
+# Detect Wine compatibility and decide if isolated Wine 9.7 is needed.
+phase_0_detect_wine() {
+    info "Phase 0: Detecting Wine compatibility..."
+
+    local system_wine_version=""
+
+    if command -v wine >/dev/null 2>&1; then
+        system_wine_version=$(wine --version 2>/dev/null | grep -oP 'wine-\K[0-9]+\.[0-9]+' || echo "")
+        if [[ -n "$system_wine_version" ]]; then
+            info "System Wine detected: ${system_wine_version}"
+        else
+            system_wine_version=$(wine --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1 || echo "")
+            info "System Wine detected: ${system_wine_version}"
+        fi
+    else
+        info "No system Wine detected."
+    fi
+
+    NEEDS_ISOLATED_WINE=false
+
+    if [[ -z "$system_wine_version" ]]; then
+        NEEDS_ISOLATED_WINE=true
+        info "No system Wine found. Will download isolated Wine 9.7."
+    elif [[ "$(printf '%s\n' "9.0" "$system_wine_version" | sort -V | head -n1)" == "9.0" ]]; then
+        if wine --version 2>/dev/null | grep -qi "wow64" || \
+           (WINEARCH=win32 wine wineboot --init 2>&1 | grep -q "not supported in wow64 mode"); then
+            NEEDS_ISOLATED_WINE=true
+            warn "System Wine ${system_wine_version} uses WoW64 mode and cannot create win32 prefixes."
+            info "Will download isolated Wine 9.7 with native 32-bit support."
+        else
+            warn "System Wine ${system_wine_version} may work but is untested. Proceeding with caution."
+        fi
+    else
+        warn "System Wine ${system_wine_version} is older than 9.7. Office 365 may not work."
+        read -rp "Download isolated Wine 9.7 for best compatibility? [Y/n]: " choice
+        if [[ ! "${choice}" =~ ^[Nn]$ ]]; then
+            NEEDS_ISOLATED_WINE=true
+        fi
+    fi
+
+    if [[ "$NEEDS_ISOLATED_WINE" == true ]]; then
+        ISOLATED_WINE_DIR="${CURRENT_HOME}/.wine-msoffice/wine"
+        ISOLATED_WINE_BIN="${ISOLATED_WINE_DIR}/usr/bin"
+        WINE_CMD="${ISOLATED_WINE_BIN}/wine"
+        WINESERVER_CMD="${ISOLATED_WINE_BIN}/wineserver"
+        WINEPATH_CMD="${ISOLATED_WINE_BIN}/winepath"
+    fi
+}
+
 # Dynamic progress tracking: uses 'progress' command for file-I/O phases
 # (apt, winetricks) and file-size polling for silent phases (ODT download/install)
 
@@ -229,26 +257,94 @@ phase_a_dependencies() {
 
     # Install all packages in a single compound command
     # Categories: build tools, printing, MSI tooling, LLVM, 32-bit libs, X11, networking, fonts, Wine
-    run_apt_install \
-        build-essential gcc-multilib g++-multilib flex bison \
-        git wget curl pkg-config gettext \
-        zenity progress \
-        cups-daemon cups-client printer-driver-all \
-        system-config-printer printer-driver-cups-pdf \
-        msitools \
-        clang lld \
-        libc6:i386 libgcc1:i386 libstdc++6:i386 \
-        libfreetype6:i386 libx11-6:i386 libxext6:i386 \
-        libxrender1:i386 libxrandr2:i386 \
-        winbind samba-common samba-libs gnutls-bin \
-        ttf-mscorefonts-installer \
-        wine64 wine32 winetricks
+    local apt_packages=(
+        build-essential gcc-multilib g++-multilib flex bison
+        git wget curl pkg-config gettext
+        zenity progress p7zip-full zstd
+        cups-daemon cups-client printer-driver-all
+        system-config-printer printer-driver-cups-pdf
+        msitools
+        clang lld
+        libc6:i386 libgcc1:i386 libstdc++6:i386
+        libfreetype6:i386 libx11-6:i386 libxext6:i386
+        libxrender1:i386 libxrandr2:i386
+        libxcursor1:i386 libxi6:i386 libxinerama1:i386 libxcomposite1:i386
+        libgl1-mesa-glx:i386 libglu1-mesa:i386
+        libasound2:i386 libpulse0:i386
+        libdbus-1-3:i386 libncurses6:i386
+        libopenal1:i386 libv4l-0:i386
+        libgphoto2-6:i386 libldap-2.4-2:i386
+        libgnutls30:i386 libhogweed6:i386 libnettle8:i386
+        libtasn1-6:i386 libp11-kit0:i386
+        libfontconfig1:i386 libpng16-16:i386
+        libxml2:i386 libxslt1.1:i386
+        libmpg123-0:i386 libgstreamer1.0-0:i386
+        libgstreamer-plugins-base1.0-0:i386
+        libudev1:i386 libusb-1.0-0:i386
+        libvulkan1:i386
+        winbind samba-common samba-libs gnutls-bin
+        ttf-mscorefonts-installer
+    )
+
+    # Only install system Wine if we're using it (not isolated)
+    if [[ "$NEEDS_ISOLATED_WINE" != true ]]; then
+        apt_packages+=(wine64 wine32 winetricks)
+    fi
+
+    run_apt_install "${apt_packages[@]}"
 
     # Start background progress monitor for file-I/O tracking
     start_progress_monitor
 
     info "Dependencies installed or already present."
     stop_progress_monitor
+
+    # If isolated Wine is needed, download it now
+    if [[ "$NEEDS_ISOLATED_WINE" == true ]]; then
+        phase_a1_download_isolated_wine
+    fi
+}
+
+# ---- Phase A1: Download Isolated Wine 9.7 -----------------------------------
+phase_a1_download_isolated_wine() {
+    info "Downloading isolated Wine 9.7..."
+
+    local wine_zst="${DOWNLOADS}/wine-9.7.zst"
+    local wine_url="https://i.[REDACTED].com/i/[REDACTED].zst"
+
+    mkdir -p "${ISOLATED_WINE_DIR}"
+
+    if [[ -d "${ISOLATED_WINE_DIR}/usr/bin" ]] && [[ -f "${ISOLATED_WINE_BIN}/wine" ]]; then
+        info "Isolated Wine 9.7 already present at ${ISOLATED_WINE_DIR}"
+        return 0
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        wget --progress=bar:force -O "${wine_zst}" "${wine_url}" 2>&1 | tail -f -n +6
+    elif command -v curl >/dev/null 2>&1; then
+        curl -L --progress-bar -o "${wine_zst}" "${wine_url}"
+    else
+        die "Neither wget nor curl available. Cannot download Wine 9.7."
+    fi
+
+    info "Extracting Wine 9.7 (this may take a minute)..."
+    if command -v unzstd >/dev/null 2>&1; then
+        tar --use-compress-program=unzstd -xf "${wine_zst}" -C "${ISOLATED_WINE_DIR}"
+    elif command -v zstd >/dev/null 2>&1; then
+        zstd -d "${wine_zst}" -o /tmp/wine-9.7.tar && tar -xf /tmp/wine-9.7.tar -C "${ISOLATED_WINE_DIR}" && rm -f /tmp/wine-9.7.tar
+    else
+        die "zstd/unzstd not installed. Cannot extract Wine 9.7 archive."
+    fi
+
+    rm -f "${wine_zst}"
+
+    if [[ ! -f "${ISOLATED_WINE_BIN}/wine" ]]; then
+        die "Wine 9.7 extraction failed. ${ISOLATED_WINE_BIN}/wine not found."
+    fi
+
+    "${WINESERVER_CMD}" -k 2>/dev/null || true
+
+    info "Isolated Wine 9.7 installed at ${ISOLATED_WINE_DIR}"
 }
 
 # ---- Phase B: Create Clean Wine Prefix --------------------------------------
@@ -262,27 +358,28 @@ phase_b_wine_prefix() {
     fi
 
     export WINEPREFIX="${WINE_PREFIX}"
-    # CRITICAL: Use 32-bit prefix. 64-bit prefix causes:
-    #   - dotnet40 install failure (mscoree.dll overwrite bug)
-    #   - SEH crash in wow64 layer (err:seh:NtRaiseException)
-    #   - OfficeClickToRun.exe deadlock
     export WINEARCH="win32"
 
-    # Initialize prefix (as user, never root)
-    run_as_user wineboot --init
+    local wine_init="${WINE_CMD}"
+    local wineserver_init="${WINESERVER_CMD}"
 
-    # Set Windows version to Windows 10 (required by modern Office)
-    run_as_user wine reg add "HKCU\\Software\\Wine" /v Version /d "win10" /f || true
+    info "Initializing prefix with: ${wine_init}"
+    "${wine_init}" wineboot --init
+
+    # Set Windows 7 (NOT Windows 10 — causes SEH crashes in Wine 9.7)
+    "${wine_init}" reg add "HKCU\\Software\\Wine" /v Version /d "win7" /f || true
 
     # Registry tweaks required for Office 365 stability on Wine
     info "Applying Wine registry tweaks for Office compatibility..."
-    run_as_user wine reg add "HKCU\\Software\\Wine\\Direct2D" /v max_version_factory /d "0" /f || true
-    run_as_user wine reg add "HKCU\\Software\\Wine\\Direct3D" /v MaxVersionGL /d "30002" /f || true
+    "${wine_init}" reg add "HKCU\\Software\\Wine\\Direct2D" /v max_version_factory /d "0" /f || true
+    "${wine_init}" reg add "HKCU\\Software\\Wine\\Direct3D" /v MaxVersionGL /d "30002" /f || true
 
     # Install common redistributables Office expects
-    info "Installing Winetricks packages (corefonts, msxml6, gdiplus, dotnet40)..."
+    # NOTE: NO dotnet40. It causes mscoree overwrite errors and is not needed.
+    info "Installing Winetricks packages (corefonts, msxml6, gdiplus)..."
     start_progress_monitor
-    run_as_user winetricks -q corefonts msxml6 gdiplus dotnet40 || warn "Some winetricks packages may have failed; continuing."
+    WINE="${wine_init}" WINEPREFIX="${WINE_PREFIX}" winetricks -q corefonts msxml6 gdiplus || \
+        warn "Some winetricks packages may have failed; continuing."
     stop_progress_monitor
 
     # Rebuild dosdevices
@@ -306,7 +403,7 @@ phase_b_wine_prefix() {
     chmod -R u+rwX "${WINE_PREFIX}"
 
     # Final update of the prefix (as user)
-    run_as_user wine wineboot -u
+    "${wine_init}" wineboot -u
 
     info "Wine prefix created and configured."
 }
@@ -380,13 +477,15 @@ phase_d_install_office() {
     export WINEPREFIX="${WINE_PREFIX}"
     export WINEARCH="win32"
 
-    # Use Downloads directory for config — Wine maps /tmp poorly via Z:\ drive
+    local wine_exec="${WINE_CMD}"
+    local winepath_exec="${WINEPATH_CMD}"
+
     local config_path="${DOWNLOADS}/o365_configuration.xml"
-    cat > "${config_path}" <<EOF
+    cat > "${config_path}" <<'EOF'
 <Configuration>
-  <Add OfficeClientEdition="32" Channel="Current">
-    <Product ID="O365ProPlusRetail">
-      <Language ID="en-GB" />
+  <Add OfficeClientEdition="32" Channel="PerpetualVL2021">
+    <Product ID="ProPlus2021Volume">
+      <Language ID="en-us" />
     </Product>
   </Add>
   <Display Level="None" AcceptEULA="TRUE" />
@@ -394,15 +493,12 @@ phase_d_install_office() {
   <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
   <Property Name="SharedComputerLicensing" Value="0" />
   <Property Name="PinIconsToTaskbar" Value="FALSE" />
-  <Updates Enabled="TRUE" Channel="Current" />
 </Configuration>
 EOF
 
-    # ODT downloads to a default location under ~/Downloads/Office/
-    # We use the Data/ subdirectory as the marker that download succeeded
-    # Convert Linux config path to Windows path for ODT
     local win_config_path
-    win_config_path=$(run_as_user wine winepath -w "${config_path}" 2>/dev/null) || die "Failed to convert config path to Windows format."
+    win_config_path=$("${winepath_exec}" -w "${config_path}" 2>/dev/null) || \
+        die "Failed to convert config path to Windows format."
 
     local office_data="${DOWNLOADS}/Office/Data"
 
@@ -521,7 +617,7 @@ phase_h_test() {
 
     # Launch Word briefly then kill to confirm the binary runs
     echo "Launching WINWORD.EXE for 5 seconds to verify execution..."
-    timeout 5 wine "${word_path}" &>/dev/null || true
+    timeout 5 "${WINE_CMD}" "${word_path}" >/dev/null 2>&1 || true
     pkill -9 -f WINWORD.EXE || true
 
     info "Test complete. Installation verified."
@@ -566,7 +662,7 @@ main() {
     echo
 
     # Early Wine compatibility check — abort before wasting time on downloads
-    check_wine_compatibility
+    phase_0_detect_wine
 
     phase_a_dependencies
     phase_b_wine_prefix
