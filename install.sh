@@ -60,6 +60,37 @@ wait_for_dpkg_lock() {
     fi
 }
 
+# ---- Apt Install with Race-Resilient Retry -----------------------------------
+# Checks lock INSIDE the apt call. Retries up to 3 times on lock contention.
+# On non-lock failures (missing packages, network), fails fast via set -e.
+run_apt_install() {
+    local max_retries=3
+    local attempt=1
+
+    while [ ${attempt} -le ${max_retries} ]; do
+        wait_for_dpkg_lock
+
+        # Run apt-get install. If it succeeds, return immediately.
+        if sudo apt-get install -y --no-install-recommends "$@"; then
+            return 0
+        fi
+
+        local apt_exit=$?
+
+        # If apt failed because of the lock, retry. Otherwise, fail fast.
+        if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+            warn "apt-get failed (likely lock contention). Retry ${attempt}/${max_retries}..."
+            sleep 2
+            attempt=$((attempt + 1))
+            continue
+        else
+            return ${apt_exit}
+        fi
+    done
+
+    die "apt-get install failed after ${max_retries} attempts."
+}
+
 # ---- Phase A: Dependencies -------------------------------------------------
 phase_a_dependencies() {
     info "Phase A: Installing system dependencies..."
@@ -71,12 +102,9 @@ phase_a_dependencies() {
     sudo dpkg --add-architecture i386 || true
     sudo apt-get update
 
-    # Wait for any other apt/dpkg process to release the lock
-    wait_for_dpkg_lock
-
     # Install all packages in a single compound command
     # Categories: build tools, printing, MSI tooling, LLVM, 32-bit libs, X11, networking, fonts, Wine
-    sudo apt-get install -y --no-install-recommends \
+    run_apt_install \
         build-essential gcc-multilib g++-multilib flex bison \
         git wget curl pkg-config gettext \
         zenity \

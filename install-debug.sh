@@ -2,12 +2,15 @@
 # Debug launcher for install.sh — captures all output while preserving terminal for sudo
 # Usage: ./install-debug.sh
 
+set -euo pipefail
+
 LOG_DIR="${HOME}/Desktop/Development/Apps/Office-365-Linux/debug/logs"
 mkdir -p "${LOG_DIR}"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="${LOG_DIR}/install-debug-${TIMESTAMP}.log"
 ENV_FILE="${LOG_DIR}/install-env-${TIMESTAMP}.log"
+EXIT_CODE_FILE="/tmp/install_exit_code.$$"
 
 echo "========================================"
 echo "  Debug Launch: $(date)"
@@ -30,15 +33,19 @@ echo "Environment captured to: ${ENV_FILE}"
 echo ""
 
 # Run installer with bash -x trace, using 'script' to preserve pseudo-TTY for sudo
+# We capture the inner exit code by writing it to a temp file — 'script' does NOT
+# propagate the inner command's exit code on its own.
 cd "${HOME}/Desktop/Development/Apps/Office-365-Linux"
 echo "Starting install.sh with bash -x trace..."
 echo "All output is being captured to: ${LOG_FILE}"
 echo ""
 
 # Use 'script' to create a pseudo-tty — this allows sudo to work while capturing everything
-script -q -c "bash -x ./install.sh" "${LOG_FILE}"
+script -q -c "bash -x ./install.sh; echo \$? > ${EXIT_CODE_FILE}" "${LOG_FILE}"
 
-EXIT_CODE=$?
+# Capture the REAL exit code from the inner install.sh (not script's own exit code)
+EXIT_CODE=$(cat "${EXIT_CODE_FILE}" 2>/dev/null || echo 1)
+rm -f "${EXIT_CODE_FILE}"
 
 echo ""
 echo "========================================"
