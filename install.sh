@@ -143,10 +143,11 @@ phase_b_wine_prefix() {
     # Set Windows version to Windows 10 (required by modern Office)
     wine reg add "HKCU\\Software\\Wine" /v Version /d "win10" /f || true
 
-    # Install common redistributables Office expects
-    # 'dotnet40' is required for the Office Deployment Tool (ODT) to run under Wine.
-    info "Installing Winetricks packages (corefonts, msxml6, gdiplus, dotnet40)..."
-    winetricks -q corefonts msxml6 gdiplus dotnet40 || warn "Some winetricks packages may have failed; continuing."
+    # Install common redistributables Office expects.
+    # Note: Do NOT install dotnet40 via winetricks — it breaks mscoree.dll on
+    # Wine 10.0 64-bit prefixes. We force Wine's built-in mscoree instead.
+    info "Installing Winetricks packages (corefonts, msxml6, gdiplus)..."
+    winetricks -q corefonts msxml6 gdiplus || warn "Some winetricks packages may have failed; continuing."
 
     # Rebuild dosdevices exactly as in the original clean structure
     info "Rebuilding Wine dosdevices..."
@@ -243,6 +244,10 @@ phase_d_install_office() {
 
     export WINEPREFIX="${WINE_PREFIX}"
     export WINEARCH="win64"
+    # Force Wine's built-in mscoree (.NET stub) — installing dotnet40 via
+    # winetricks breaks it on Wine 10.0 64-bit prefixes. The ODT works fine
+    # with the built-in stub.
+    export WINEDLLOVERRIDES="mscoree=b"
 
     # Use Downloads directory for config — Wine maps /tmp poorly via Z:\ drive
     local config_path="${DOWNLOADS}/o365_configuration.xml"
