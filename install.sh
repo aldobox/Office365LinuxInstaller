@@ -7,7 +7,7 @@ trap 'echo; echo "[FATAL] Installation failed at line $LINENO. See error above."
 # =============================================================================
 # Office365LinuxInstaller
 # Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu/Debian
-# Version: 1.0.000
+# Version: 2.0.0
 # =============================================================================
 
 # ---- User Detection (for privilege dropping) ------------------------------
@@ -20,6 +20,7 @@ CURRENT_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6 || echo "$HOME")
 
 # ---- Configuration ----------------------------------------------------------
 WINE_PREFIX="${CURRENT_HOME}/.Microsoft_Office_365"
+EXTRACTED_DIR="${CURRENT_HOME}/.office365-extracted"
 DOWNLOADS="${CURRENT_HOME}/Downloads"
 ICON_SIZE="256x256"
 ICON_HICOLOR="/usr/share/icons/hicolor/${ICON_SIZE}/apps"
@@ -27,6 +28,17 @@ APP_DIR="/usr/share/applications"
 FONT_DIR="/usr/share/fonts/Windows"
 LAUNCHER_DIR="/opt/launchers"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOGFILE="/tmp/office365_installer.log"
+
+# Windows VM Configuration (for Method 2)
+VM_NAME="office365-extractor"
+VM_DIR="${CURRENT_HOME}/.office365-extractor-vm"
+
+# Installation method (set by phase_0)
+INSTALL_METHOD=""
+
+# Prebuilt URL (user-configurable, empty by default)
+PREBUILT_URL=""  # Set this to your GitHub release asset URL or skip to Method 2/3
 
 # Isolated Wine 9.7 paths (populated in phase_0_detect_wine)
 ISOLATED_WINE_DIR=""
@@ -41,6 +53,7 @@ info()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 warn()  { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
 error() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 die()   { error "$*"; exit 1; }
+log()   { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOGFILE"; }
 
 # Drop privileges when running as root (e.g., via sudo bash install.sh)
 run_as_user() {
@@ -55,10 +68,146 @@ run_as_user() {
     fi
 }
 
-# ---- Phase 0: Wine Version Detection ---------------------------------------
+# ---- Phase 0: Consent Banner and Method Selection ----------------------------
+phase_0_consent_and_method() {
+    # Clear screen for clean presentation
+    clear 2>/dev/null || true
+
+    echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                                                                              ║"
+    echo "║           Office365LinuxInstaller v2.0.0 — Installation Wizard                 ║"
+    echo "║                                                                              ║"
+    echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+    echo
+    echo "IMPORTANT — PLEASE READ BEFORE PROCEEDING"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo
+    echo "This installer will set up Microsoft Office 365 on your Linux system using"
+    echo "one of three methods. Before you choose, please understand what will happen:"
+    echo
+    echo "┌─────────────────────────────────────────────────────────────────────────────┐"
+    echo "│ METHOD 1: Download Pre-Extracted Binaries (FASTEST — ~5 minutes)            │"
+    echo "│ ─────────────────────────────────────────────────────────────────────────── │"
+    echo "│ • Downloads pre-extracted Office binaries from an external source           │"
+    echo "│ • Installs an isolated Wine 9.7 runtime (~150 MB)                           │"
+    echo "│ • Creates a 32-bit Wine prefix at ~/.Microsoft_Office_365                   │"
+    echo "│ • Copies Office binaries into the prefix                                    │"
+    echo "│ • Creates desktop launchers and file associations                             │"
+    echo "│ • Sets up browser intercept for Microsoft account sign-in                     │"
+    echo "│ • Temporary files: ~3 GB (cleaned up after install)                         │"
+    echo "│ • Internet required: Yes                                                      │"
+    echo "└─────────────────────────────────────────────────────────────────────────────┘"
+    echo
+    echo "┌─────────────────────────────────────────────────────────────────────────────┐"
+    echo "│ METHOD 2: Extract from Windows VM (SLOW — ~60-90 minutes)                   │"
+    echo "│ ─────────────────────────────────────────────────────────────────────────── │"
+    echo "│ • Downloads a Windows 10 Evaluation ISO (~5 GB) from Microsoft              │"
+    echo "│ • Creates a QEMU/KVM virtual machine (3 GB RAM, 2 vCPUs, 25 GB disk)        │"
+    echo "│ • Installs Windows 10 unattended (no user interaction)                        │"
+    echo "│ • Downloads and runs the official Office Deployment Tool inside the VM        │"
+    echo "│ • Extracts Office binaries from the VM disk to your Linux filesystem          │"
+    echo "│ • Copies extracted binaries into a Wine prefix                                │"
+    echo "│ • DELETES the VM and all associated files after extraction                    │"
+    echo "│ • Temporary files: ~40 GB (VM + ISO, fully cleaned up after)                  │"
+    echo "│ • Internet required: Yes                                                      │"
+    echo "│ • System requirements: 8GB+ RAM, 40GB free disk, KVM CPU support            │"
+    echo "└─────────────────────────────────────────────────────────────────────────────┘"
+    echo
+    echo "┌─────────────────────────────────────────────────────────────────────────────┐"
+    echo "│ METHOD 3: Use My Own Packages (CUSTOM — ~2 minutes)                         │"
+    echo "│ ─────────────────────────────────────────────────────────────────────────── │"
+    echo "│ • You provide a pre-extracted Microsoft Office tree                           │"
+    echo "│ • Installer copies your files into a Wine prefix                            │"
+    echo "│ • No external downloads required                                              │"
+    echo "│ • Temporary files: ~3 GB                                                      │"
+    echo "│ • Internet required: No                                                       │"
+    echo "└─────────────────────────────────────────────────────────────────────────────┘"
+    echo
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo "WHAT WILL BE INSTALLED ON YOUR SYSTEM"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo
+    echo "  • Wine 9.7 (isolated, does not conflict with system Wine)"
+    echo "  • Wine prefix: ~/.Microsoft_Office_365 (~3 GB after install)"
+    echo "  • Desktop launchers: /opt/launchers/"
+    echo "  • Application menu entries: /usr/share/applications/"
+    echo "  • Icons: /usr/share/icons/hicolor/256x256/apps/"
+    echo "  • File associations for .docx, .xlsx, .pptx, etc."
+    echo
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo "KNOWN LIMITATIONS & DISCLAIMERS"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo
+    echo "  ⚠ Microsoft account login uses a browser fallback mechanism. It may not"
+    echo "    work perfectly. Cloud sync, OneDrive integration, and real-time"
+    echo "    collaboration require a working Microsoft login."
+    echo "  ⚠ OneNote and Teams are known to be non-functional in Wine."
+    echo "  ⚠ Excel may exhibit screen flickering."
+    echo "  ⚠ No automatic feature updates — manual reinstallation required."
+    echo "  ⚠ This installer does NOT include, distribute, or facilitate piracy."
+    echo "    You must have a valid Microsoft 365 subscription."
+    echo "  ⚠ Windows 10 Evaluation ISO is provided by Microsoft under their terms."
+    echo "    It is a 90-day trial and requires no license key."
+    echo
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo
+
+    # Consent requirement
+    read -rp "Do you understand and accept the above? Type YES to continue: " consent
+    if [[ "${consent}" != "YES" ]]; then
+        echo
+        echo "Installation aborted. You must type YES in uppercase to proceed."
+        exit 0
+    fi
+
+    log "User provided consent: YES"
+
+    echo
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo "CHOOSE YOUR INSTALLATION METHOD"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo
+    echo "  [1] Download pre-extracted binaries (FASTEST — ~5 minutes)"
+    echo "      Best for: Most users with a good internet connection"
+    echo
+    echo "  [2] Extract from Windows VM (SLOW — ~60-90 minutes)"
+    echo "      Best for: Privacy-conscious users who want full control"
+    echo
+    echo "  [3] Use my own Office packages (CUSTOM — ~2 minutes)"
+    echo "      Best for: Enterprise users with volume-licensed binaries"
+    echo
+    echo "  [4] Abort installation"
+    echo
+
+    read -rp "Your choice [1/2/3/4]: " choice
+    log "User chose method: $choice"
+
+    case "$choice" in
+        1)
+            INSTALL_METHOD="prebuilt"
+            ;;
+        2)
+            INSTALL_METHOD="vm"
+            ;;
+        3)
+            INSTALL_METHOD="user"
+            ;;
+        4)
+            info "Aborted."
+            exit 0
+            ;;
+        *)
+            die "Invalid choice. Run the installer again."
+            ;;
+    esac
+}
+
+# ---- Phase 0.5: Wine Version Detection -------------------------------------
 # Detect Wine compatibility and decide if isolated Wine 9.7 is needed.
-phase_0_detect_wine() {
-    info "Phase 0: Detecting Wine compatibility..."
+# This runs after method selection.
+phase_0_5_detect_wine() {
+    info "Phase 0.5: Detecting Wine compatibility..."
+    log "Phase 0.5: Wine detection"
 
     local system_wine_version=""
 
@@ -86,7 +235,11 @@ phase_0_detect_wine() {
             warn "System Wine ${system_wine_version} uses WoW64 mode and cannot create win32 prefixes."
             info "Will download isolated Wine 9.7 with native 32-bit support."
         else
-            warn "System Wine ${system_wine_version} may work but is untested. Proceeding with caution."
+            warn "System Wine ${system_wine_version} may work but is untested."
+            read -rp "Download isolated Wine 9.7 for best compatibility? [Y/n]: " choice
+            if [[ ! "${choice}" =~ ^[Nn]$ ]]; then
+                NEEDS_ISOLATED_WINE=true
+            fi
         fi
     else
         warn "System Wine ${system_wine_version} is older than 9.7. Office 365 may not work."
@@ -291,7 +444,19 @@ phase_a_dependencies() {
         apt_packages+=(wine64 wine32 winetricks)
     fi
 
+    # Add VM packages if needed
+    if [[ "$INSTALL_METHOD" == "vm" ]]; then
+        apt_packages+=(qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients virtinst genisoimage cpio)
+    fi
+
     run_apt_install "${apt_packages[@]}"
+
+    # Add user to groups for VM method
+    if [[ "$INSTALL_METHOD" == "vm" ]]; then
+        sudo usermod -aG libvirt "$CURRENT_USER" 2>/dev/null || true
+        sudo usermod -aG kvm "$CURRENT_USER" 2>/dev/null || true
+        sudo systemctl enable --now libvirtd 2>/dev/null || true
+    fi
 
     # Start background progress monitor for file-I/O tracking
     start_progress_monitor
@@ -462,137 +627,131 @@ phase_b_wine_prefix() {
     info "Wine prefix created and configured."
 }
 
-# ---- Phase C: Prompt for Official Installer ---------------------------------
-phase_c_get_installer() {
-    info "Phase C: Preparing for official Office installer download..."
+# ---- Phase C: Install Office Binaries (3 methods) ---------------------------
 
-    # If installer is already present, skip the browser prompt entirely
-    local auto_installer=""
-    for candidate in "${DOWNLOADS}/Setup.exe" "${DOWNLOADS}/OfficeSetup.exe"; do
-        if [ -f "${candidate}" ]; then
-            auto_installer="${candidate}"
-            break
-        fi
-    done
+# Method 1: Download pre-extracted binaries
+phase_c1_prebuilt() {
+    info "Phase C1: Downloading pre-extracted Office binaries..."
+    log "Phase C1: Prebuilt download"
 
-    if [ -n "${auto_installer}" ]; then
-        info "Found existing installer: ${auto_installer}. Skipping browser prompt."
-        INSTALLER_PATH="${auto_installer}"
+    if [[ -z "$PREBUILT_URL" ]]; then
+        die "PREBUILT_URL not configured. Please set it in the script or choose another method."
+    fi
+
+    local archive="${DOWNLOADS}/office365_binaries.tar.zst"
+
+    if [[ -d "${EXTRACTED_DIR}/Microsoft Office" ]]; then
+        info "Binaries already extracted."
         return 0
     fi
 
-    echo
-    echo "============================================================================"
-    echo " IMPORTANT: You must download the official Microsoft Office installer."
-    echo ""
-    echo " 1. We will open your web browser to https://www.microsoft.com/en-us/microsoft-365/download-office"
-    echo " 2. Click 'Download for Windows' to get the Office Deployment Tool (ODT)."
-    echo " 3. Save the downloaded file (usually 'OfficeSetup.exe')"
-    echo "    to your Downloads folder: ${DOWNLOADS}"
-    echo " 4. Return here and press Enter to continue."
-    echo "============================================================================"
-    echo
-
-    # Attempt to open browser
-    if command -v xdg-open &>/dev/null; then
-        xdg-open "https://www.microsoft.com/en-us/microsoft-365/download-office" &
-    elif command -v firefox &>/dev/null; then
-        firefox "https://www.microsoft.com/en-us/microsoft-365/download-office" &
-    elif command -v google-chrome &>/dev/null; then
-        google-chrome "https://www.microsoft.com/en-us/microsoft-365/download-office" &
+    info "Downloading Office binaries archive..."
+    if command -v wget >/dev/null 2>&1; then
+        wget --progress=bar:force -O "$archive" "$PREBUILT_URL" 2>&1 | tail -f -n +6
     else
-        warn "Could not detect a browser. Please manually open https://www.microsoft.com/en-us/microsoft-365/download-office"
+        curl -L --progress-bar -o "$archive" "$PREBUILT_URL"
     fi
 
-    wait_for_enter
-
-    # Locate installer
-    local installer=""
-    for candidate in "${DOWNLOADS}/Setup.exe" "${DOWNLOADS}/OfficeSetup.exe"; do
-        if [ -f "${candidate}" ]; then
-            installer="${candidate}"
-            break
-        fi
-    done
-
-    if [ -z "${installer}" ]; then
-        die "No Setup.exe or OfficeSetup.exe found in ${DOWNLOADS}. " \
-            "Please download the official installer and try again."
+    mkdir -p "$EXTRACTED_DIR"
+    info "Extracting binaries..."
+    if command -v unzstd >/dev/null 2>&1; then
+        tar --use-compress-program=unzstd -xf "$archive" -C "$EXTRACTED_DIR"
+    else
+        zstd -d "$archive" -o /tmp/office365_binaries.tar \u0026\u0026 \
+            tar -xf /tmp/office365_binaries.tar -C "$EXTRACTED_DIR" \u0026\u0026 \
+            rm -f /tmp/office365_binaries.tar
     fi
 
-    echo "Found installer: ${installer}"
-    INSTALLER_PATH="${installer}"
+    rm -f "$archive"
+    log "Phase C1: Prebuilt binaries ready"
 }
 
-# ---- Phase D: Run Official Installer in Wine (ODT-aware) --------------------
-phase_d_install_office() {
-    info "Phase D: Installing official Office into Wine prefix..."
+# Method 2: Extract from Windows VM
+phase_c2_vm() {
+    info "Phase C2: Extracting Office binaries from Windows VM..."
+    log "Phase C2: VM extraction starting"
 
-    export WINEPREFIX="${WINE_PREFIX}"
-    export WINEARCH="win32"
+    # Check KVM support
+    if ! grep -c -E '(vmx|svm)' /proc/cpuinfo >/dev/null 2>&1; then
+        die "KVM virtualization not supported on this CPU. Cannot create VM."
+    fi
 
-    local wine_exec="${WINE_CMD}"
-    local winepath_exec="${WINEPATH_CMD}"
+    # Check available RAM
+    local avail_ram_kb
+    avail_ram_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+    if [[ "$avail_ram_kb" -lt 4194304 ]]; then  # 4GB
+        warn "Less than 4GB RAM available. VM may fail or be very slow."
+        read -rp "Continue anyway? [y/N]: " ans
+        [[ "$ans" =~ ^[Yy]$ ]] || die "Aborted."
+    fi
 
-    local config_path="${DOWNLOADS}/o365_configuration.xml"
-    cat > "${config_path}" <<'EOF'
-<Configuration>
-  <Add OfficeClientEdition="32" Channel="PerpetualVL2021">
-    <Product ID="ProPlus2021Volume">
-      <Language ID="en-us" />
-    </Product>
-  </Add>
-  <Display Level="None" AcceptEULA="TRUE" />
-  <Property Name="AUTOACTIVATE" Value="0" />
-  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
-  <Property Name="SharedComputerLicensing" Value="0" />
-  <Property Name="PinIconsToTaskbar" Value="FALSE" />
-</Configuration>
-EOF
+    # Check disk space
+    local avail_disk
+    avail_disk=$(df -BG "$HOME" | tail -1 | awk '{print $4}' | tr -d 'G')
+    if [[ "$avail_disk" -lt 40 ]]; then
+        die "Need at least 40GB free disk space. You have ~${avail_disk}GB."
+    fi
 
-    local win_config_path
-    win_config_path=$("${winepath_exec}" -w "${config_path}" 2>/dev/null) || \
-        die "Failed to convert config path to Windows format."
-
-    local office_data="${DOWNLOADS}/Office/Data"
-
-    # Check if download cache already exists and is non-empty
-    if [ -d "${office_data}" ] && [ "$(ls -A "${office_data}" 2>/dev/null | wc -l)" -gt 0 ]; then
-        info "Office download cache found at ${DOWNLOADS}/Office. Skipping /download."
+    # Run VM extractor
+    if [[ -f "${SCRIPT_DIR}/office365_vm_extractor.sh" ]]; then
+        bash "${SCRIPT_DIR}/office365_vm_extractor.sh"
     else
-        info "Downloading Office binaries (~4-5 GB). This may take 20-30 minutes..."
-        # Run ODT /download in background so we can poll folder size for progress
-        (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /download "${win_config_path}") 2>/dev/null &
-        local download_pid=$!
-        # 4.5 GB = 4831838208 bytes
-        poll_folder_progress "${DOWNLOADS}/Office" 4831838208 "Downloading Office" "${download_pid}"
-        wait "${download_pid}" || die "ODT /download failed."
-
-        # Verify download actually happened (don't trust exit code alone)
-        if [ ! -d "${office_data}" ] || [ "$(ls -A "${office_data}" 2>/dev/null | wc -l)" -eq 0 ]; then
-            die "ODT /download reported success but ${office_data} is empty. Config path issue?"
-        fi
-        info "Download complete."
+        die "VM extractor script not found at ${SCRIPT_DIR}/office365_vm_extractor.sh"
     fi
 
-    # Install from cache into prefix
-    info "Installing Office from cache into Wine prefix..."
-    info "This may take 10-15 minutes."
-    # Run ODT /configure in background so we can poll prefix size for progress
-    (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /configure "${win_config_path}") 2>/dev/null &
-    local configure_pid=$!
-    # Prefix grows from ~100 MB to ~2.5+ GB during install
-    # 3.0 GB = 3221225472 bytes (generous estimate, bar clamps at 100%%)
-    poll_folder_progress "${WINE_PREFIX}" 3221225472 "Installing Office" "${configure_pid}"
-    wait "${configure_pid}" || die "ODT /configure failed."
+    log "Phase C2: VM extraction complete"
+}
 
-    # Verify installation
-    local word_path="${WINE_PREFIX}/drive_c/Program Files/Microsoft Office/root/Office16/WINWORD.EXE"
-    if [ ! -f "${word_path}" ]; then
-        die "Office installation verification failed: ${word_path} not found."
+# Method 3: User-provided packages
+phase_c3_user() {
+    info "Phase C3: Using user-provided Office packages..."
+    log "Phase C3: User packages"
+
+    echo
+    echo "Please provide the path to your pre-extracted Microsoft Office tree."
+    echo "This should be a directory containing:"
+    echo "  Microsoft Office/root/Office16/WINWORD.EXE"
+    echo "  Microsoft Office/root/Office16/EXCEL.EXE"
+    echo "  etc."
+    echo
+    read -rp "Path to Office tree: " user_path
+
+    if [[ ! -d "$user_path" ]]; then
+        die "Path does not exist: $user_path"
     fi
 
-    info "Office installed successfully."
+    if [[ ! -f "${user_path}/root/Office16/WINWORD.EXE" ]] && [[ ! -f "${user_path}/Microsoft Office/root/Office16/WINWORD.EXE" ]]; then
+        die "Invalid Office tree. WINWORD.EXE not found."
+    fi
+
+    mkdir -p "$EXTRACTED_DIR"
+    cp -r "$user_path" "$EXTRACTED_DIR/"
+
+    log "Phase C3: User packages copied"
+}
+
+# ---- Phase D: Copy Binaries to Wine Prefix ---------------------------------
+phase_d_copy_binaries() {
+    info "Phase D: Copying Office binaries to Wine prefix..."
+    log "Phase D: Copying binaries"
+
+    local src="${EXTRACTED_DIR}/Microsoft Office"
+    local dst="${WINE_PREFIX}/drive_c/Program Files/Microsoft Office"
+
+    if [[ ! -d "$src" ]]; then
+        die "Office binaries not found at ${src}"
+    fi
+
+    mkdir -p "${WINE_PREFIX}/drive_c/Program Files"
+    cp -r "$src" "$dst"
+
+    # Verify
+    if [[ ! -f "${dst}/root/Office16/WINWORD.EXE" ]]; then
+        die "Copy failed. WINWORD.EXE not found in prefix."
+    fi
+
+    log "Phase D: Binaries copied"
+    info "Office binaries installed."
 }
 
 # ---- Phase E: Copy Launchers & Wrappers -------------------------------------
@@ -703,57 +862,112 @@ phase_i_cleanup() {
     fi
 }
 
-# ---- Main Orchestrator ------------------------------------------------------
-main() {
-    echo "========================================"
-    echo "  Office365LinuxInstaller v1.0.101"
-    echo "  Clean Office 365 via Wine"
-    echo "========================================"
+# ---- Phase I: Cleanup Prompt ------------------------------------------------
+phase_i_cleanup() {
     echo
-    echo "This installer uses sudo to install system packages"
-    echo "and desktop integration files. You may be prompted for"
-    echo "your password."
-    echo
+    read -rp "Delete temporary files to save disk space? [y/n]: " answer
+    if [[ "${answer}" =~ ^[Yy]$ ]]; then
+        info "Cleaning up temporary files..."
+        log "Phase I: Cleanup"
 
-    # Caveat disclosure banner
+        # Remove VM files if VM method was used
+        if [[ "$INSTALL_METHOD" == "vm" ]]; then
+            virsh destroy "$VM_NAME" 2>/dev/null || true
+            virsh undefine "$VM_NAME" --remove-all-storage 2>/dev/null || true
+            rm -rf "$VM_DIR"
+            rm -f "${DOWNLOADS}/wine-9.7.zst"
+        fi
+
+        # Remove extracted binaries (they're now in the prefix)
+        rm -rf "$EXTRACTED_DIR"
+
+        # Remove ODT config (legacy)
+        rm -f "${DOWNLOADS}/o365_configuration.xml"
+        rm -f "${DOWNLOADS}/o365_config.xml"
+
+        # Remove Wine zst if still there
+        rm -f "${DOWNLOADS}/wine-9.7.zst"
+
+        # Also clean Winetricks temp
+        rm -f /tmp/winetricks.* 2>/dev/null || true
+
+        info "Cleanup complete."
+        log "Phase I: Cleanup done"
+    else
+        info "Temporary files preserved."
+        log "Phase I: Cleanup skipped"
+    fi
+}
+
+# ---- Phase J: Final Report --------------------------------------------------
+phase_j_report() {
+    echo
     echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-    echo "║  OFFICE 365 ON LINUX — KNOWN LIMITATIONS (Wine 9.7 Path)                   ║"
-    echo "╠══════════════════════════════════════════════════════════════════════════════╣"
-    echo "║  ✓ Word, Excel, PowerPoint, Outlook, Access, Publisher work                ║"
-    echo "║  ⚠ Microsoft account login uses browser fallback (experimental)              ║"
-    echo "║  ⚠ OneNote and Teams may NOT work                                            ║"
-    echo "║  ⚠ Excel may flicker when typing                                             ║"
-    echo "║  ⚠ No automatic feature updates (manual reinstall required)                  ║"
-    echo "║  ⚠ Isolated Wine 9.7 will not receive security updates                       ║"
-    echo "╠══════════════════════════════════════════════════════════════════════════════╣"
-    echo "║  ALTERNATIVE: Use LinOffice (VM-based) for full functionality                ║"
-    echo "║  https://github.com/eylenburg/linoffice                                      ║"
+    echo "║                                                                              ║"
+    echo "║                    Installation Complete!                                      ║"
+    echo "║                                                                              ║"
     echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo
+    echo "Method used: $INSTALL_METHOD"
+    echo "Wine prefix: $WINE_PREFIX"
+    echo "Isolated Wine: $ISOLATED_WINE_DIR"
+    echo
+    echo "Office apps are available in your system menu."
+    echo "Sign in with your Microsoft account when first opening each app."
+    echo
+    echo "KNOWN LIMITATIONS:"
+    echo "  - Microsoft account login may require browser fallback"
+    echo "  - OneNote and Teams may not work"
+    echo "  - Excel may flicker"
+    echo "  - No automatic feature updates"
+    echo
+    echo "To uninstall: ./uninstall.sh"
+    echo "Log file: $LOGFILE"
+    echo
+    log "Installation complete"
+}
 
-    # Early Wine compatibility check — abort before wasting time on downloads
-    phase_0_detect_wine
+# ---- Main Orchestrator ------------------------------------------------------
+main() {
+    > "$LOGFILE"
+    log "Installer v2.0.0 started"
 
+    # Phase 0: Consent banner + method selection
+    phase_0_consent_and_method
+
+    # Phase 0.5: Wine compatibility check
+    phase_0_5_detect_wine
+
+    # Phase A: Dependencies (includes Wine 9.7 download if needed)
     phase_a_dependencies
+
+    # Phase B: Create Wine prefix
     phase_b_wine_prefix
-    phase_c_get_installer
-    phase_d_install_office
+
+    # Phase C: Get Office binaries (method-dependent)
+    case "$INSTALL_METHOD" in
+        prebuilt)
+            phase_c1_prebuilt
+            ;;
+        vm)
+            phase_c2_vm
+            ;;
+        user)
+            phase_c3_user
+            ;;
+    esac
+
+    # Phase D: Copy binaries to prefix
+    phase_d_copy_binaries
+
+    # Phase E-H: Launchers, desktop integration, fonts, test
     phase_e_launchers
     phase_f_desktop_integration
     phase_g_fonts_mime
     phase_h_test
     phase_i_cleanup
+    phase_j_report
 
-    echo
-    echo "========================================"
-    echo "  Installation Complete!"
-    echo "========================================"
-    echo
-    echo "You can now launch Office apps from your application menu."
-    echo "Sign in with your Microsoft account when first opening each app."
-    echo
-    echo "To uninstall, run: ./uninstall.sh"
-    echo
 }
 
 main "$@"

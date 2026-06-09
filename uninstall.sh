@@ -4,7 +4,7 @@ set -uo pipefail
 # =============================================================================
 # Office365LinuxInstaller Uninstaller
 # Safely removes all artifacts created by install.sh
-# Version: 1.0.000
+# Version: 2.0.0
 # =============================================================================
 
 info()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
@@ -28,6 +28,36 @@ pkill -9 -f OfficeClickToRun.exe 2>/dev/null || true
 
 # Wait briefly for processes to die
 sleep 2
+
+# ---- Remove extracted Office binaries ---------------------------------------
+if [ -d "${HOME}/.office365-extracted" ]; then
+    info "Removing extracted Office binaries: ${HOME}/.office365-extracted"
+    rm -rf "${HOME}/.office365-extracted"
+else
+    warn "No extracted binaries found at ${HOME}/.office365-extracted"
+fi
+
+# ---- Remove VM extractor artifacts -------------------------------------------
+if [ -d "${HOME}/.office365-extractor-vm" ]; then
+    info "Removing VM extractor artifacts: ${HOME}/.office365-extractor-vm"
+    rm -rf "${HOME}/.office365-extractor-vm"
+else
+    warn "No VM artifacts found at ${HOME}/.office365-extractor-vm"
+fi
+
+# ---- Remove isolated Wine ----------------------------------------------------
+if [ -d "${HOME}/.wine-msoffice/wine" ]; then
+    info "Removing isolated Wine: ${HOME}/.wine-msoffice/wine"
+    rm -rf "${HOME}/.wine-msoffice/wine"
+else
+    warn "No isolated Wine found at ${HOME}/.wine-msoffice/wine"
+fi
+
+# ---- Clean up any remaining Wine-msoffice directory ------------------------
+if [ -d "${HOME}/.wine-msoffice" ]; then
+    info "Removing Wine-msoffice directory: ${HOME}/.wine-msoffice"
+    rm -rf "${HOME}/.wine-msoffice"
+fi
 
 # ---- Remove Wine prefix ------------------------------------------------------
 if [ -d "${HOME}/.Microsoft_Office_365" ]; then
