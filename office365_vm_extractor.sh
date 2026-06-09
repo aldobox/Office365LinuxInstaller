@@ -308,7 +308,7 @@ phase_6_wait_and_extract() {
 
     # Find the Windows partition (usually the largest NTFS partition)
     local disk_path="${VM_DIR}/${VM_NAME}.qcow2"
-    guestmount -a "$disk_path" -i --rw "$mount_point" || die "Failed to mount VM disk"
+    sudo guestmount -a "$disk_path" -i --rw "$mount_point" || die "Failed to mount VM disk"
 
     # Verify mount worked
     if ! mountpoint -q "$mount_point"; then
