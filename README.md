@@ -9,8 +9,10 @@ Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu / De
 
 This project provides an automated installer that supports **three installation methods**:
 
-**Method 1: Pre-extracted binaries (FASTEST — ~5 minutes)**
-- Downloads pre-extracted Office binaries from an external source you configure
+**Method 1: Download from Your Trusted Source (FAST — ~5 minutes)**
+- You paste a URL at runtime pointing to a `.tar.zst` archive with pre-extracted Office binaries
+- The installer downloads from YOUR specified source (your own server, company repo, trusted mirror)
+- The installer does NOT provide, host, or endorse any third-party source
 - Installs an isolated Wine 9.7 runtime (~150 MB)
 - Creates a 32-bit Wine prefix at `~/.Microsoft_Office_365`
 - Sets up desktop launchers, file associations, and MIME types
@@ -37,7 +39,7 @@ This project provides an automated installer that supports **three installation 
 - Ubuntu / Debian / Linux Mint / Xubuntu (or derivative)
 - Active **Microsoft 365 subscription** (Personal, Family, or Business)
 - `sudo` privileges (for installing system packages, fonts, and icons)
-- For **Method 1**: Internet connection + external download source (set `PREBUILT_URL` in `install.sh`)
+- For **Method 1**: Internet connection + a trusted source URL (you paste at runtime)
 - For **Method 2**: 8GB+ RAM, 40GB free disk, KVM CPU support, internet connection
 - For **Method 3**: A pre-extracted Microsoft Office tree
 

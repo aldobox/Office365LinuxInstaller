@@ -37,8 +37,8 @@ VM_DIR="${CURRENT_HOME}/.office365-extractor-vm"
 # Installation method (set by phase_0)
 INSTALL_METHOD=""
 
-# Prebuilt URL (user-configurable, empty by default)
-PREBUILT_URL=""  # Set this to your GitHub release asset URL or skip to Method 2/3
+# User-provided URL for Method 1 (set at runtime)
+USER_PROVIDED_URL=""
 
 # Isolated Wine 9.7 paths (populated in phase_0_detect_wine)
 ISOLATED_WINE_DIR=""
@@ -86,9 +86,12 @@ phase_0_consent_and_method() {
     echo "one of three methods. Before you choose, please understand what will happen:"
     echo
     echo "┌─────────────────────────────────────────────────────────────────────────────┐"
-    echo "│ METHOD 1: Download Pre-Extracted Binaries (FASTEST — ~5 minutes)            │"
+    echo "│ METHOD 1: Download from Trusted Source (FAST — ~5 minutes)                  │"
     echo "│ ─────────────────────────────────────────────────────────────────────────── │"
-    echo "│ • Downloads pre-extracted Office binaries from an external source           │"
+    echo "│ • YOU provide a URL to a pre-extracted Office binary archive (.tar.zst)     │"
+    echo "│ • The installer downloads from YOUR specified source (e.g., your own server,│"
+    echo "│   your company's internal repository, a trusted mirror you control)          │"
+    echo "│ • The installer does NOT provide, host, or endorse any third-party source   │"
     echo "│ • Installs an isolated Wine 9.7 runtime (~150 MB)                           │"
     echo "│ • Creates a 32-bit Wine prefix at ~/.Microsoft_Office_365                   │"
     echo "│ • Copies Office binaries into the prefix                                    │"
@@ -96,6 +99,8 @@ phase_0_consent_and_method() {
     echo "│ • Sets up browser intercept for Microsoft account sign-in                     │"
     echo "│ • Temporary files: ~3 GB (cleaned up after install)                         │"
     echo "│ • Internet required: Yes                                                      │"
+    echo "│ • LEGAL NOTE: You are solely responsible for the source and legality of     │"
+    echo "│   the binaries you provide. This installer does not verify licenses.        │"
     echo "└─────────────────────────────────────────────────────────────────────────────┘"
     echo
     echo "┌─────────────────────────────────────────────────────────────────────────────┐"
@@ -167,8 +172,8 @@ phase_0_consent_and_method() {
     echo "CHOOSE YOUR INSTALLATION METHOD"
     echo "═══════════════════════════════════════════════════════════════════════════════"
     echo
-    echo "  [1] Download pre-extracted binaries (FASTEST — ~5 minutes)"
-    echo "      Best for: Most users with a good internet connection"
+    echo "  [1] Download from trusted source (FAST — ~5 minutes)"
+    echo "      Best for: Users with their own binary source or internal mirror"
     echo
     echo "  [2] Extract from Windows VM (SLOW — ~60-90 minutes)"
     echo "      Best for: Privacy-conscious users who want full control"
@@ -629,14 +634,55 @@ phase_b_wine_prefix() {
 
 # ---- Phase C: Install Office Binaries (3 methods) ---------------------------
 
-# Method 1: Download pre-extracted binaries
+# Method 1: Download from user's trusted source
 phase_c1_prebuilt() {
-    info "Phase C1: Downloading pre-extracted Office binaries..."
-    log "Phase C1: Prebuilt download"
+    info "Phase C1: Download from trusted source..."
+    log "Phase C1: Trusted source download"
 
-    if [[ -z "$PREBUILT_URL" ]]; then
-        die "PREBUILT_URL not configured. Please set it in the script or choose another method."
+    # Show disclaimer and prompt for URL
+    echo
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo "METHOD 1: Download from Your Trusted Source"
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo
+    echo "DISCLAIMER:"
+    echo "  This installer does NOT provide, host, or endorse any binary source."
+    echo "  You are solely responsible for the URL you provide and the legality"
+    echo "  of the binaries downloaded from it."
+    echo
+    echo "  The URL must point to a .tar.zst archive containing a pre-extracted"
+    echo "  Microsoft Office tree with this structure:"
+    echo "    Microsoft Office/root/Office16/WINWORD.EXE"
+    echo "    Microsoft Office/root/Office16/EXCEL.EXE"
+    echo "    etc."
+    echo
+    echo "  Examples of valid sources:"
+    echo "    • Your own private server or CDN"
+    echo "    • Your company's internal artifact repository"
+    echo "    • A GitHub release asset from your own repository"
+    echo
+    echo "  Examples of INVALID sources (not recommended):"
+    echo "    • Random third-party download sites"
+    echo "    • Torrents or file-sharing networks"
+    echo "    • Any source you do not trust or control"
+    echo
+    echo "═══════════════════════════════════════════════════════════════════════════════"
+    echo
+
+    read -rp "Paste your URL (or type ABORT to cancel): " user_url
+
+    if [[ "${user_url^^}" == "ABORT" ]]; then
+        info "Aborted by user."
+        exit 0
     fi
+
+    # Basic URL validation
+    if [[ ! "$user_url" =~ ^https?:// ]]; then
+        die "Invalid URL. Must start with http:// or https://"
+    fi
+
+    USER_PROVIDED_URL="$user_url"
+    log "User provided URL: $USER_PROVIDED_URL"
 
     local archive="${DOWNLOADS}/office365_binaries.tar.zst"
 
@@ -646,15 +692,20 @@ phase_c1_prebuilt() {
     fi
 
     info "Downloading Office binaries archive..."
-    if command -v wget >/dev/null 2>&1; then
-        wget --progress=bar:force -O "$archive" "$PREBUILT_URL" 2>&1 | tail -f -n +6
+    if command -v wget > /dev/null 2>&1; then
+        wget --progress=bar:force -O "$archive" "$USER_PROVIDED_URL" 2>&1 | tail -f -n +6
     else
-        curl -L --progress-bar -o "$archive" "$PREBUILT_URL"
+        curl -L --progress-bar -o "$archive" "$USER_PROVIDED_URL"
+    fi
+
+    # Verify download succeeded
+    if [[ ! -f "$archive" ]] || [[ ! -s "$archive" ]]; then
+        die "Download failed. The URL may be invalid or unreachable."
     fi
 
     mkdir -p "$EXTRACTED_DIR"
     info "Extracting binaries..."
-    if command -v unzstd >/dev/null 2>&1; then
+    if command -v unzstd > /dev/null 2>&1; then
         tar --use-compress-program=unzstd -xf "$archive" -C "$EXTRACTED_DIR"
     else
         zstd -d "$archive" -o /tmp/office365_binaries.tar \u0026\u0026 \
@@ -662,8 +713,18 @@ phase_c1_prebuilt() {
             rm -f /tmp/office365_binaries.tar
     fi
 
+    # Verify archive structure
+    if [[ ! -d "${EXTRACTED_DIR}/Microsoft Office" ]]; then
+        rm -f "$archive"
+        die "Invalid archive structure. Expected 'Microsoft Office/' directory at root."
+    fi
+    if [[ ! -f "${EXTRACTED_DIR}/Microsoft Office/root/Office16/WINWORD.EXE" ]]; then
+        rm -f "$archive"
+        die "Invalid archive. WINWORD.EXE not found in expected location."
+    fi
+
     rm -f "$archive"
-    log "Phase C1: Prebuilt binaries ready"
+    log "Phase C1: Trusted source binaries ready"
 }
 
 # Method 2: Extract from Windows VM
