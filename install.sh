@@ -1,15 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep terminal open on error so user can read the message
+trap 'echo; echo "[FATAL] Installation failed at line $LINENO. See error above."; echo "If you need help, run with: bash -x install.sh"; read -rp "Press Enter to exit..."; exit 1' ERR
+
 # =============================================================================
 # Office365LinuxInstaller
 # Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu/Debian
 # Version: 1.0.000
 # =============================================================================
 
+# ---- User Detection (for privilege dropping) ------------------------------
+# Detect the real user even when script is run via sudo
+current_user() {
+    logname 2>/dev/null || echo "${SUDO_USER:-$USER}"
+}
+CURRENT_USER=$(current_user)
+CURRENT_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6 || echo "$HOME")
+
 # ---- Configuration ----------------------------------------------------------
-WINE_PREFIX="${HOME}/.Microsoft_Office_365"
-DOWNLOADS="${HOME}/Downloads"
+WINE_PREFIX="${CURRENT_HOME}/.Microsoft_Office_365"
+DOWNLOADS="${CURRENT_HOME}/Downloads"
 ICON_SIZE="256x256"
 ICON_HICOLOR="/usr/share/icons/hicolor/${ICON_SIZE}/apps"
 APP_DIR="/usr/share/applications"
@@ -23,7 +34,49 @@ warn()  { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
 error() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 die()   { error "$*"; exit 1; }
 
-# ---- Progress Bar Helpers ---------------------------------------------------
+# ---- Wine Compatibility Check -----------------------------------------------
+# Detect Wine version early and abort if WoW64 mode (Wine 9.0+) is found.
+# This saves the user from downloading 4-5 GB of Office files that can never be installed.
+check_wine_compatibility() {
+    if ! command -v wine >/dev/null 2>&1; then
+        info "Wine not found. Installing Wine, wine32, and winetricks via apt..."
+        run_apt_install wine wine32 winetricks
+    fi
+
+    local wine_version
+    wine_version=$(wine --version 2>/dev/null | grep -oP '\d+\.\d+' | head -1)
+
+    if [[ -n "$wine_version" && "$(printf '%s\n' "9.0" "$wine_version" | sort -V | head -n1)" == "9.0" ]]; then
+        # Wine >= 9.0 — check for WoW64
+        local wine_build_info
+        wine_build_info=$(wine --version 2>/dev/null)
+        if echo "$wine_build_info" | grep -qi "wow64\|staging\|repack"; then
+            error "Wine $wine_version uses WoW64 mode."
+            error "Office 365 Click-to-Run cannot install via modern Wine."
+            echo
+            info "Options:"
+            echo "  (1) Use LinOffice / WinApps (VM-based, seamless)"
+            echo "  (2) Use CodeWeavers CrossOver (paid, works)"
+            echo "  (3) Build Wine 9.7 from source (unsupported, fragile)"
+            echo
+            read -rp "Press Enter to exit..."
+            exit 1
+        fi
+    fi
+}
+
+# Drop privileges when running as root (e.g., via sudo bash install.sh)
+run_as_user() {
+    if [ "${EUID:-$(id -u)}" -eq 0 ] && [ "$CURRENT_USER" != "root" ]; then
+        if command -v runuser >/dev/null 2>&1; then
+            runuser -u "$CURRENT_USER" -- "$@"
+        else
+            sudo -u "$CURRENT_USER" -- "$@"
+        fi
+    else
+        "$@"
+    fi
+}
 # Dynamic progress tracking: uses 'progress' command for file-I/O phases
 # (apt, winetricks) and file-size polling for silent phases (ODT download/install)
 
@@ -215,21 +268,21 @@ phase_b_wine_prefix() {
     #   - OfficeClickToRun.exe deadlock
     export WINEARCH="win32"
 
-    # Initialize prefix
-    wineboot --init
+    # Initialize prefix (as user, never root)
+    run_as_user wineboot --init
 
     # Set Windows version to Windows 10 (required by modern Office)
-    wine reg add "HKCU\\Software\\Wine" /v Version /d "win10" /f || true
+    run_as_user wine reg add "HKCU\\Software\\Wine" /v Version /d "win10" /f || true
 
     # Registry tweaks required for Office 365 stability on Wine
     info "Applying Wine registry tweaks for Office compatibility..."
-    wine reg add "HKCU\\Software\\Wine\\Direct2D" /v max_version_factory /d "0" /f || true
-    wine reg add "HKCU\\Software\\Wine\\Direct3D" /v MaxVersionGL /d "30002" /f || true
+    run_as_user wine reg add "HKCU\\Software\\Wine\\Direct2D" /v max_version_factory /d "0" /f || true
+    run_as_user wine reg add "HKCU\\Software\\Wine\\Direct3D" /v MaxVersionGL /d "30002" /f || true
 
     # Install common redistributables Office expects
     info "Installing Winetricks packages (corefonts, msxml6, gdiplus, dotnet40)..."
     start_progress_monitor
-    winetricks -q corefonts msxml6 gdiplus dotnet40 || warn "Some winetricks packages may have failed; continuing."
+    run_as_user winetricks -q corefonts msxml6 gdiplus dotnet40 || warn "Some winetricks packages may have failed; continuing."
     stop_progress_monitor
 
     # Rebuild dosdevices
@@ -248,12 +301,12 @@ phase_b_wine_prefix() {
     mkdir -p "${WINE_PREFIX}/drive_c/users/${USER}/AppData/Local"
     mkdir -p "${WINE_PREFIX}/drive_c/users/${USER}/AppData/Roaming"
 
-    # Fix ownership/permissions
-    sudo chown -R "${USER}:${USER}" "${WINE_PREFIX}"
+    # Fix ownership/permissions (handle root-run scripts gracefully)
+    chown -R "${CURRENT_USER}:${CURRENT_USER}" "${WINE_PREFIX}"
     chmod -R u+rwX "${WINE_PREFIX}"
 
-    # Final update of the prefix
-    wine wineboot -u
+    # Final update of the prefix (as user)
+    run_as_user wine wineboot -u
 
     info "Wine prefix created and configured."
 }
@@ -349,7 +402,7 @@ EOF
     # We use the Data/ subdirectory as the marker that download succeeded
     # Convert Linux config path to Windows path for ODT
     local win_config_path
-    win_config_path=$(wine winepath -w "${config_path}" 2>/dev/null) || die "Failed to convert config path to Windows format."
+    win_config_path=$(run_as_user wine winepath -w "${config_path}" 2>/dev/null) || die "Failed to convert config path to Windows format."
 
     local office_data="${DOWNLOADS}/Office/Data"
 
@@ -511,6 +564,9 @@ main() {
     echo "and desktop integration files. You may be prompted for"
     echo "your password."
     echo
+
+    # Early Wine compatibility check — abort before wasting time on downloads
+    check_wine_compatibility
 
     phase_a_dependencies
     phase_b_wine_prefix
