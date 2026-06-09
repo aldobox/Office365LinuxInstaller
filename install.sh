@@ -366,13 +366,45 @@ phase_b_wine_prefix() {
     info "Initializing prefix with: ${wine_init}"
     "${wine_init}" wineboot --init
 
-    # Set Windows 7 (NOT Windows 10 — causes SEH crashes in Wine 9.7)
-    "${wine_init}" reg add "HKCU\\Software\\Wine" /v Version /d "win7" /f || true
+    # Set Windows 8.1 (NOT 7 or 10) — forces MSAL to skip WAM and use browser fallback
+    # MSAL checks Windows version: WAM requires Windows 10+
+    # On Windows 8.1, MSAL falls back to browser-based OAuth2 with http://localhost redirect
+    "${wine_init}" reg add "HKCU\\Software\\Wine" /v Version /d "win81" /f || true
 
     # Registry tweaks required for Office 365 stability on Wine
     info "Applying Wine registry tweaks for Office compatibility..."
     "${wine_init}" reg add "HKCU\\Software\\Wine\\Direct2D" /v max_version_factory /d "0" /f || true
     "${wine_init}" reg add "HKCU\\Software\\Wine\\Direct3D" /v MaxVersionGL /d "30002" /f || true
+
+    # CRITICAL: Override HTTP handler to intercept MSAL browser launch
+    # This routes auth URLs to our custom wrapper which opens them in Linux browser
+    # Check project dir first, then fallback to home dir
+    local wrapper_script=""
+    for candidate in "${SCRIPT_DIR}/winebrowser-wrapper.sh" "${CURRENT_HOME}/.wine-msoffice/winebrowser-wrapper.sh"; do
+        if [[ -f "${candidate}" ]]; then
+            wrapper_script="${candidate}"
+            break
+        fi
+    done
+    if [[ -f "${wrapper_script}" ]]; then
+        info "Registering custom HTTP handler for MSAL browser fallback..."
+        local win_wrapper_path
+        win_wrapper_path=$("${wine_init}" winepath -w "${wrapper_script}" 2>/dev/null) || true
+        if [[ -n "${win_wrapper_path}" ]]; then
+            "${wine_init}" reg add "HKEY_CLASSES_ROOT\\http\\shell\\open\\command" /ve /d "\"${win_wrapper_path}\" \"%1\"" /f || true
+            info "HTTP handler registered: ${win_wrapper_path}"
+        else
+            warn "Could not convert wrapper path to Windows format. Auth fallback may not work."
+        fi
+    else
+        warn "Custom HTTP handler not found at ${wrapper_script}. MSAL auth may fail."
+    fi
+
+    # Extra insurance: disable WAM via Office registry keys
+    info "Disabling WAM/ADAL to force browser-based authentication..."
+    "${wine_init}" reg add "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /v EnableADAL /d "0" /t REG_DWORD /f || true
+    "${wine_init}" reg add "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /v DisableADALatopWAMOverride /d "1" /t REG_DWORD /f || true
+    "${wine_init}" reg add "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /v DisableAADWAM /d "1" /t REG_DWORD /f || true
 
     # Install common redistributables Office expects
     # NOTE: NO dotnet40. It causes mscoree overwrite errors and is not needed.
@@ -659,6 +691,22 @@ main() {
     echo "This installer uses sudo to install system packages"
     echo "and desktop integration files. You may be prompted for"
     echo "your password."
+    echo
+
+    # Caveat disclosure banner
+    echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+    echo "║  OFFICE 365 ON LINUX — KNOWN LIMITATIONS (Wine 9.7 Path)                   ║"
+    echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+    echo "║  ✓ Word, Excel, PowerPoint, Outlook, Access, Publisher work                ║"
+    echo "║  ⚠ Microsoft account login uses browser fallback (experimental)              ║"
+    echo "║  ⚠ OneNote and Teams may NOT work                                            ║"
+    echo "║  ⚠ Excel may flicker when typing                                             ║"
+    echo "║  ⚠ No automatic feature updates (manual reinstall required)                  ║"
+    echo "║  ⚠ Isolated Wine 9.7 will not receive security updates                       ║"
+    echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+    echo "║  ALTERNATIVE: Use LinOffice (VM-based) for full functionality                ║"
+    echo "║  https://github.com/eylenburg/linoffice                                      ║"
+    echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo
 
     # Early Wine compatibility check — abort before wasting time on downloads
