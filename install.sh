@@ -28,6 +28,38 @@ wait_for_enter() {
     read -rp "Press Enter to continue..."
 }
 
+# ---- Lock Wait Helper -------------------------------------------------------
+wait_for_dpkg_lock() {
+    local max_wait=12
+    local waited=0
+    local lock="/var/lib/dpkg/lock-frontend"
+
+    while [ ${waited} -lt ${max_wait} ]; do
+        if ! fuser "${lock}" >/dev/null 2>&1; then
+            return 0
+        fi
+
+        local blocker
+        blocker=$(fuser "${lock}" 2>/dev/null | xargs ps -o comm= -p 2>/dev/null | head -1 || echo "unknown")
+        warn "Package manager lock held by '${blocker}'. Waiting... (${waited}s/${max_wait}s)"
+        sleep 4
+        waited=$((waited + 4))
+    done
+
+    # Final check after wait
+    if ! fuser "${lock}" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Prompt user to resolve manually
+    warn "Package manager lock still held. Waiting for you to resolve."
+    read -rp "Press Enter once the other apt/dpkg process has finished (or Ctrl+C to cancel)..."
+
+    if fuser "${lock}" >/dev/null 2>&1; then
+        die "Package manager lock is still active. Cannot continue."
+    fi
+}
+
 # ---- Phase A: Dependencies -------------------------------------------------
 phase_a_dependencies() {
     info "Phase A: Installing system dependencies..."
@@ -38,6 +70,9 @@ phase_a_dependencies() {
     # Enable 32-bit architecture
     sudo dpkg --add-architecture i386 || true
     sudo apt-get update
+
+    # Wait for any other apt/dpkg process to release the lock
+    wait_for_dpkg_lock
 
     # Install all packages in a single compound command
     # Categories: build tools, printing, MSI tooling, LLVM, 32-bit libs, X11, networking, fonts, Wine
@@ -54,7 +89,7 @@ phase_a_dependencies() {
         libxrender1:i386 libxrandr2:i386 \
         winbind samba-common samba-libs gnutls-bin \
         ttf-mscorefonts-installer \
-        wine64 wine32 winetricks || true
+        wine64 wine32 winetricks
 
     info "Dependencies installed or already present."
 }
