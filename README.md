@@ -59,7 +59,7 @@ This project provides an automated installer that supports **three installation 
 3. **Read the consent banner** and type `YES` to proceed.
 
 4. **Choose your installation method:**
-   - **[1]** Download pre-extracted binaries (requires `PREBUILT_URL` to be set)
+   - **[1]** Download from your trusted source (paste a URL at runtime)
    - **[2]** Extract from Windows VM (fully automated, takes ~60-90 min)
    - **[3]** Use your own packages (point to your Office tree)
 
@@ -131,7 +131,7 @@ To completely remove Office 365 and all associated files:
 
 ## Troubleshooting
 
-- **"PREBUILT_URL not configured"**: For Method 1, edit `install.sh` and set `PREBUILT_URL="https://your-url-here"` to point to your GitHub release asset or other trusted source.
+- **"Invalid URL" (Method 1)**: The URL must start with `http://` or `https://` and point to a `.tar.zst` archive. The archive must contain a `Microsoft Office/` directory with `root/Office16/WINWORD.EXE` inside. You are solely responsible for the legality of the source.
 - **"KVM virtualization not supported"**: Method 2 requires CPU virtualization extensions (vmx/svm). Check BIOS settings for Intel VT-x / AMD-V.
 - **"WINWORD.EXE not found"**: Check `~/.Microsoft_Office_365/drive_c/Program Files/Microsoft Office/root/Office16/`. If using Method 3, verify your Office tree has the correct structure.
 - **Fonts look odd**: Run `sudo fc-cache -fv` after installation.
