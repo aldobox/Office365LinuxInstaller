@@ -70,12 +70,14 @@ run_apt_install() {
     while [ ${attempt} -le ${max_retries} ]; do
         wait_for_dpkg_lock
 
-        # Run apt-get install. If it succeeds, return immediately.
-        if sudo apt-get install -y --no-install-recommends "$@"; then
+        # Capture exit code directly from apt-get (NOT from an if-statement,
+        # because bash 'if' without 'else' returns 0 when test is false).
+        sudo apt-get install -y --no-install-recommends "$@"
+        local apt_exit=$?
+
+        if [ ${apt_exit} -eq 0 ]; then
             return 0
         fi
-
-        local apt_exit=$?
 
         # If apt failed because of the lock, retry. Otherwise, fail fast.
         if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
