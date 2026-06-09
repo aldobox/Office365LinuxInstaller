@@ -59,13 +59,13 @@ if echo "$URL" | grep -qiE "(login\.microsoftonline\.com|login\.live\.com|accoun
     # Open the auth URL in the Linux default browser
     if command -v xdg-open >/dev/null 2>&1; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Opening via xdg-open..." >> "$LOGFILE"
-        xdg-open "$URL" &
+        xdg-open "$URL" >/dev/null 2>&1 &
     elif command -v firefox >/dev/null 2>&1; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Opening via firefox..." >> "$LOGFILE"
-        firefox "$URL" &
+        firefox "$URL" >/dev/null 2>&1 &
     elif command -v google-chrome >/dev/null 2>&1; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Opening via google-chrome..." >> "$LOGFILE"
-        google-chrome "$URL" &
+        google-chrome "$URL" >/dev/null 2>&1 &
     else
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: No browser found to open $URL" >> "$LOGFILE"
         echo "Please manually open this URL in your browser:" >&2
@@ -81,13 +81,11 @@ fi
 
 # For non-auth URLs, just open normally via Wine's default chain
 if command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$URL" &
-disown 2>/dev/null || true
+    xdg-open "$URL" >/dev/null 2>&1 &
 else
     # Fallback: try to use winebrowser.exe (Wine builtin)
     if command -v winebrowser >/dev/null 2>&1; then
-        winebrowser "$URL" &
-disown 2>/dev/null || true
+        winebrowser "$URL" >/dev/null 2>&1 &
     else
         echo "No browser available to open: $URL" >&2
         exit 1

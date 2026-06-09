@@ -328,15 +328,24 @@ phase_a1_download_isolated_wine() {
     fi
 
     info "Extracting Wine 9.7 (this may take a minute)..."
+    local extract_tmp="${DOWNLOADS}/wine_extract_tmp_$$"
+    mkdir -p "${extract_tmp}"
+
     if command -v unzstd >/dev/null 2>&1; then
-        tar --use-compress-program=unzstd -xf "${wine_zst}" -C "${ISOLATED_WINE_DIR}"
+        tar --use-compress-program=unzstd -xf "${wine_zst}" -C "${extract_tmp}"
     elif command -v zstd >/dev/null 2>&1; then
-        zstd -d "${wine_zst}" -o /tmp/wine-9.7.tar && tar -xf /tmp/wine-9.7.tar -C "${ISOLATED_WINE_DIR}" && rm -f /tmp/wine-9.7.tar
+        zstd -d "${wine_zst}" -o /tmp/wine-9.7.tar && tar -xf /tmp/wine-9.7.tar -C "${extract_tmp}" && rm -f /tmp/wine-9.7.tar
     else
         die "zstd/unzstd not installed. Cannot extract Wine 9.7 archive."
     fi
 
     rm -f "${wine_zst}"
+
+    # The archive extracts to a bare 'usr/' directory. We need it inside 'wine/usr/'
+    if [[ -d "${extract_tmp}/usr" ]]; then
+        rsync -a "${extract_tmp}/usr/" "${ISOLATED_WINE_DIR}/usr/" 2>/dev/null || cp -r "${extract_tmp}/usr" "${ISOLATED_WINE_DIR}/"
+    fi
+    rm -rf "${extract_tmp}"
 
     if [[ ! -f "${ISOLATED_WINE_BIN}/wine" ]]; then
         die "Wine 9.7 extraction failed. ${ISOLATED_WINE_BIN}/wine not found."
@@ -433,6 +442,19 @@ phase_b_wine_prefix() {
     # Fix ownership/permissions (handle root-run scripts gracefully)
     chown -R "${CURRENT_USER}:${CURRENT_USER}" "${WINE_PREFIX}"
     chmod -R u+rwX "${WINE_PREFIX}"
+
+    # Phase 1: Copy WAM stub DLL to Office binary directory
+    # This forces MSAL to treat WAM as unavailable if win81 spoof is not sufficient
+    local stub_dll="${SCRIPT_DIR}/stub_dll/msalruntime.dll"
+    if [[ -f "${stub_dll}" ]]; then
+        info "Installing WAM stub DLL (Phase 1 fallback)..."
+        local office_bin_dir="${WINE_PREFIX}/drive_c/Program Files/Microsoft Office/root/Office16"
+        mkdir -p "${office_bin_dir}"
+        cp "${stub_dll}" "${office_bin_dir}/"
+        info "WAM stub installed: ${office_bin_dir}/msalruntime.dll"
+    else
+        info "WAM stub DLL not bundled. Phase 1 fallback not available."
+    fi
 
     # Final update of the prefix (as user)
     "${wine_init}" wineboot -u
