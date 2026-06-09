@@ -19,8 +19,11 @@ EXTRACTED_DIR="${HOME}/.office365-extracted"
 DOWNLOADS="${HOME}/Downloads"
 LOGFILE="/tmp/office365_vm_extractor.log"
 
-# Windows 10 Evaluation ISO (official Microsoft, no key needed, 90-day trial)
-WIN_ISO_URL="https://software-download.microsoft.com/download/pr/19043.928.210409-1212.21h1_release_svc_prod1/Windows10.iso"
+# Windows 10/11 Evaluation ISO (official Microsoft, no key needed, 90-day trial)
+# NOTE: Microsoft changes these URLs. If this URL fails, manually download
+# the ISO from https://www.microsoft.com/en-us/evalcenter/evaluate-windows-10-enterprise
+# and place it at ${VM_DIR}/Windows10_Evaluation.iso before running.
+WIN_ISO_URL="https://software-download.microsoft.com/download/pr/Win10_22H2_English_x64.iso"
 WIN_ISO_NAME="Windows10_Evaluation.iso"
 
 # ODT URL
@@ -306,6 +309,11 @@ phase_6_wait_and_extract() {
     # Find the Windows partition (usually the largest NTFS partition)
     local disk_path="${VM_DIR}/${VM_NAME}.qcow2"
     guestmount -a "$disk_path" -i --rw "$mount_point" || die "Failed to mount VM disk"
+
+    # Verify mount worked
+    if ! mountpoint -q "$mount_point"; then
+        die "Mount point not active. guestmount may have failed silently."
+    fi
 
     # Extract Office directory
     local office_src="${mount_point}/Program Files/Microsoft Office"

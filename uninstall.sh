@@ -103,12 +103,12 @@ fi
 
 # ---- Reset MIME defaults -----------------------------------------------------
 info "Resetting MIME defaults to system defaults..."
-xdg-mime default libreoffice--writer.desktop application/msword 2>/dev/null || true
-xdg-mime default libreoffice--writer.desktop application/vnd.openxmlformats-officedocument.wordprocessingml.document 2>/dev/null || true
-xdg-mime default libreoffice--calc.desktop application/vnd.ms-excel 2>/dev/null || true
-xdg-mime default libreoffice--calc.desktop application/vnd.openxmlformats-officedocument.spreadsheetml.sheet 2>/dev/null || true
-xdg-mime default libreoffice--impress.desktop application/vnd.ms-powerpoint 2>/dev/null || true
-xdg-mime default libreoffice--impress.desktop application/vnd.openxmlformats-officedocument.presentationml.presentation 2>/dev/null || true
+xdg-mime default libreoffice-writer.desktop application/msword 2>/dev/null || true
+xdg-mime default libreoffice-writer.desktop application/vnd.openxmlformats-officedocument.wordprocessingml.document 2>/dev/null || true
+xdg-mime default libreoffice-calc.desktop application/vnd.ms-excel 2>/dev/null || true
+xdg-mime default libreoffice-calc.desktop application/vnd.openxmlformats-officedocument.spreadsheetml.sheet 2>/dev/null || true
+xdg-mime default libreoffice-impress.desktop application/vnd.ms-powerpoint 2>/dev/null || true
+xdg-mime default libreoffice-impress.desktop application/vnd.openxmlformats-officedocument.presentationml.presentation 2>/dev/null || true
 
 # ---- Update desktop database ------------------------------------------------
 sudo update-desktop-database || true

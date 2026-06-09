@@ -526,6 +526,30 @@ phase_a1_download_isolated_wine() {
     info "Isolated Wine 9.7 installed at ${ISOLATED_WINE_DIR}"
 }
 
+# ---- Phase A2: Create Browser Intercept Wrapper ----------------------------
+phase_a2_create_browser_wrapper() {
+    info "Phase A2: Creating MSAL browser intercept wrapper..."
+    log "Phase A2: Browser wrapper"
+
+    mkdir -p "${CURRENT_HOME}/.wine-msoffice"
+    cat > "${CURRENT_HOME}/.wine-msoffice/winebrowser-wrapper.sh" <<'EOF'
+#!/bin/bash
+LOGFILE="/tmp/office_auth_url.log"
+URL="$1"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] INTERCEPTED: $URL" >> "$LOGFILE"
+
+if echo "$URL" | grep -q "redirect_uri="; then
+    REDIRECT_URI=$(echo "$URL" | sed 's/.*redirect_uri=//;s/&.*//' | python3 -c "import sys,urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" 2>/dev/null || echo "EXTRACTION_FAILED")
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] REDIRECT_URI: $REDIRECT_URI" >> "$LOGFILE"
+fi
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Opening via xdg-open..." >> "$LOGFILE"
+xdg-open "$URL" &
+EOF
+    chmod +x "${CURRENT_HOME}/.wine-msoffice/winebrowser-wrapper.sh"
+    log "Phase A2: Browser wrapper created"
+}
+
 # ---- Phase B: Create Clean Wine Prefix --------------------------------------
 phase_b_wine_prefix() {
     info "Phase B: Creating clean Wine prefix at ${WINE_PREFIX}..."
@@ -609,10 +633,6 @@ phase_b_wine_prefix() {
     mkdir -p "${WINE_PREFIX}/drive_c/users/${USER}/AppData/Local"
     mkdir -p "${WINE_PREFIX}/drive_c/users/${USER}/AppData/Roaming"
 
-    # Fix ownership/permissions (handle root-run scripts gracefully)
-    chown -R "${CURRENT_USER}:${CURRENT_USER}" "${WINE_PREFIX}"
-    chmod -R u+rwX "${WINE_PREFIX}"
-
     # Phase 1: Copy WAM stub DLL to Office binary directory
     # This forces MSAL to treat WAM as unavailable if win81 spoof is not sufficient
     local stub_dll="${SCRIPT_DIR}/stub_dll/msalruntime.dll"
@@ -625,6 +645,11 @@ phase_b_wine_prefix() {
     else
         info "WAM stub DLL not bundled. Phase 1 fallback not available."
     fi
+
+    # Fix ownership/permissions (handle root-run scripts gracefully)
+    # Must run AFTER all file copies into the prefix
+    chown -R "${CURRENT_USER}:${CURRENT_USER}" "${WINE_PREFIX}"
+    chmod -R u+rwX "${WINE_PREFIX}"
 
     # Final update of the prefix (as user)
     "${wine_init}" wineboot -u
@@ -708,8 +733,8 @@ phase_c1_prebuilt() {
     if command -v unzstd > /dev/null 2>&1; then
         tar --use-compress-program=unzstd -xf "$archive" -C "$EXTRACTED_DIR"
     else
-        zstd -d "$archive" -o /tmp/office365_binaries.tar \u0026\u0026 \
-            tar -xf /tmp/office365_binaries.tar -C "$EXTRACTED_DIR" \u0026\u0026 \
+        zstd -d "$archive" -o /tmp/office365_binaries.tar && \
+            tar -xf /tmp/office365_binaries.tar -C "$EXTRACTED_DIR" && \
             rm -f /tmp/office365_binaries.tar
     fi
 
@@ -897,32 +922,6 @@ phase_h_test() {
     info "Test complete. Installation verified."
 }
 
-# ---- Phase I: Cleanup Prompt -------------------------------------------------
-phase_i_cleanup() {
-    local office_dir="${DOWNLOADS}/Office"
-    local config_file="${DOWNLOADS}/o365_configuration.xml"
-
-    echo
-    read -rp "Delete Office download cache and temp files to save disk space? [y/n]: " answer
-    if [[ "${answer}" =~ ^[Yy]$ ]]; then
-        if [ -d "${office_dir}" ]; then
-            rm -rf "${office_dir}"
-            info "Office cache deleted."
-        fi
-        if [ -f "${config_file}" ]; then
-            rm -f "${config_file}"
-            info "ODT config file deleted."
-        fi
-        if [ -f "/tmp/o365_configuration.xml" ]; then
-            rm -f "/tmp/o365_configuration.xml"
-        fi
-        # Also clean Winetricks temp
-        rm -f /tmp/winetricks.* 2>/dev/null || true
-    else
-        info "Cache preserved at ${office_dir}."
-    fi
-}
-
 # ---- Phase I: Cleanup Prompt ------------------------------------------------
 phase_i_cleanup() {
     echo
@@ -1001,6 +1000,9 @@ main() {
 
     # Phase A: Dependencies (includes Wine 9.7 download if needed)
     phase_a_dependencies
+
+    # Phase A2: Create browser intercept wrapper (needed by Phase B)
+    phase_a2_create_browser_wrapper
 
     # Phase B: Create Wine prefix
     phase_b_wine_prefix
