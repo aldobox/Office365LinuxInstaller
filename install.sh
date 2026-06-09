@@ -32,45 +32,29 @@ wait_for_enter() {
 phase_a_dependencies() {
     info "Phase A: Installing system dependencies..."
 
+    # Prevent interactive debconf prompts during package installation
+    export DEBIAN_FRONTEND=noninteractive
+
     # Enable 32-bit architecture
     sudo dpkg --add-architecture i386 || true
     sudo apt-get update
 
-    # Core build tools & Wine/Winetricks dependencies
+    # Install all packages in a single compound command
+    # Categories: build tools, printing, MSI tooling, LLVM, 32-bit libs, X11, networking, fonts, Wine
     sudo apt-get install -y --no-install-recommends \
         build-essential gcc-multilib g++-multilib flex bison \
         git wget curl pkg-config gettext \
-        zenity || true
-
-    # Printing support
-    sudo apt-get install -y --no-install-recommends \
+        zenity \
         cups-daemon cups-client printer-driver-all \
-        system-config-printer printer-driver-cups-pdf || true
-
-    # MSIX/MSI tooling
-    sudo apt-get install -y --no-install-recommends msitools || true
-
-    # LLVM toolchain (some Wine builds prefer it)
-    sudo apt-get install -y --no-install-recommends clang lld || true
-
-    # 32-bit runtime libraries
-    sudo apt-get install -y --no-install-recommends \
-        libc6:i386 libgcc1:i386 libstdc++6:i386 || true
-
-    # Graphics/X11 libraries (32-bit)
-    sudo apt-get install -y --no-install-recommends \
+        system-config-printer printer-driver-cups-pdf \
+        msitools \
+        clang lld \
+        libc6:i386 libgcc1:i386 libstdc++6:i386 \
         libfreetype6:i386 libx11-6:i386 libxext6:i386 \
-        libxrender1:i386 libxrandr2:i386 || true
-
-    # Networking / Windows compatibility helpers
-    sudo apt-get install -y --no-install-recommends \
-        winbind samba-common samba-libs gnutls-bin || true
-
-    # Microsoft core fonts (legally redistributable)
-    sudo apt-get install -y --no-install-recommends ttf-mscorefonts-installer || true
-
-    # Wine & Winetricks
-    sudo apt-get install -y --no-install-recommends wine64 wine32 winetricks || true
+        libxrender1:i386 libxrandr2:i386 \
+        winbind samba-common samba-libs gnutls-bin \
+        ttf-mscorefonts-installer \
+        wine64 wine32 winetricks || true
 
     info "Dependencies installed or already present."
 }
@@ -328,6 +312,10 @@ main() {
     echo "  Office365LinuxInstaller v1.0.101"
     echo "  Clean Office 365 via Wine"
     echo "========================================"
+    echo
+    echo "This installer uses sudo to install system packages"
+    echo "and desktop integration files. You may be prompted for"
+    echo "your password."
     echo
 
     phase_a_dependencies

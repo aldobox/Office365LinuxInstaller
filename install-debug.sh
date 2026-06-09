@@ -29,15 +29,7 @@ cat /etc/os-release >> "${ENV_FILE}" 2>/dev/null || true
 echo "Environment captured to: ${ENV_FILE}"
 echo ""
 
-# Pre-authenticate sudo so the script won't need to prompt mid-run
-echo "Please enter your sudo password now (for pre-authentication):"
-sudo -v
-if [ $? -ne 0 ]; then
-    echo "ERROR: sudo authentication failed. Cannot continue."
-    exit 1
-fi
-
-# Run installer with bash -x trace, using 'script' to preserve pseudo-TTY for any remaining sudo calls
+# Run installer with bash -x trace, using 'script' to preserve pseudo-TTY for sudo
 cd "${HOME}/Desktop/Development/Apps/Office-365-Linux"
 echo "Starting install.sh with bash -x trace..."
 echo "All output is being captured to: ${LOG_FILE}"
