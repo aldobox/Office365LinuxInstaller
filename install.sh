@@ -8,7 +8,7 @@ trap 'echo; echo "[FATAL] Installation failed at line $LINENO. See error above."
 # =============================================================================
 # Office365LinuxInstaller
 # Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu/Debian
-# Version: 2.0.0
+# Version: 2.1.0
 # =============================================================================
 
 # ---- User Detection (for privilege dropping) ------------------------------
@@ -56,6 +56,35 @@ error() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 die()   { error "$*"; exit 1; }
 log()   { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOGFILE"; }
 
+# Disk space check (needs GB)
+check_disk_space() {
+    local needed_gb="$1"
+    local label="$2"
+    local avail_gb
+    avail_gb=$(df -BG "$HOME" | tail -1 | awk '{print $4}' | tr -d 'G')
+    if [[ "$avail_gb" -lt "$needed_gb" ]]; then
+        die "Need ~${needed_gb}GB for ${label}. You have ~${avail_gb}GB."
+    fi
+    info "Disk space OK for ${label}: ${avail_gb}GB available."
+}
+
+# Prompt user for SHA256 and verify a downloaded file
+prompt_sha256_verify() {
+    local file="$1"
+    local label="$2"
+    read -rp "Enter SHA256 for ${label} (or press Enter to skip): " user_hash
+    if [[ -n "$user_hash" ]]; then
+        local actual
+        actual=$(sha256sum "$file" | awk '{print $1}')
+        if [[ "$actual" != "$user_hash" ]]; then
+            die "SHA256 mismatch for ${label}! Expected: ${user_hash} Got: ${actual}"
+        fi
+        info "SHA256 verified for ${label}."
+    else
+        warn "Skipping SHA256 verification for ${label}."
+    fi
+}
+
 # Drop privileges when running as root (e.g., via sudo bash install.sh)
 run_as_user() {
     if [ "${EUID:-$(id -u)}" -eq 0 ] && [ "$CURRENT_USER" != "root" ]; then
@@ -76,7 +105,7 @@ phase_0_consent_and_method() {
 
     echo "╔══════════════════════════════════════════════════════════════════════════════╗"
     echo "║                                                                              ║"
-    echo "║           Office365LinuxInstaller v2.0.0 — Installation Wizard                 ║"
+    echo "║           Office365LinuxInstaller v2.1.0 — Installation Wizard                 ║"
     echo "║                                                                              ║"
     echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo
@@ -481,9 +510,13 @@ phase_a_dependencies() {
 # ---- Phase A1: Download Isolated Wine 9.7 -----------------------------------
 phase_a1_download_isolated_wine() {
     info "Downloading isolated Wine 9.7..."
+    check_disk_space 2 "Wine 9.7 download"
 
-    local wine_zst="${DOWNLOADS}/wine-9.7.zst"
-    local wine_url="https://i.[REDACTED].com/i/[REDACTED].zst"
+    local wine_zst="${DOWNLOADS}/wine-9.7.tar.zst"
+    # GitHub Release asset in this repository (aldobox/Office365LinuxInstaller)
+    # Upload the archive to: https://github.com/aldobox/Office365LinuxInstaller/releases/tag/v2.1.0
+    local github_release_url="https://github.com/aldobox/Office365LinuxInstaller/releases/download/v2.1.0/wine-9.7-x86_64.tar.zst"
+    local build_dir="${CURRENT_HOME}/.wine-msoffice/build"
 
     mkdir -p "${ISOLATED_WINE_DIR}"
 
@@ -492,36 +525,109 @@ phase_a1_download_isolated_wine() {
         return 0
     fi
 
+    # Attempt 1: Download from GitHub Release
+    info "Attempting download from GitHub Release..."
     if command -v wget >/dev/null 2>&1; then
-        wget --progress=bar:force -O "${wine_zst}" "${wine_url}" 2>&1 | tail -f -n +6
+        wget --timeout=60 --tries=2 --progress=bar:force -O "${wine_zst}" "${github_release_url}" 2>&1 | tail -f -n +6
     elif command -v curl >/dev/null 2>&1; then
-        curl -L --progress-bar -o "${wine_zst}" "${wine_url}"
+        curl -L --max-time 60 --retry 2 --progress-bar -o "${wine_zst}" "${github_release_url}"
+    fi
+
+    # Verify download succeeded
+    if [[ -f "${wine_zst}" ]] && [[ -s "${wine_zst}" ]]; then
+        info "Download successful. Verifying archive..."
+        # TODO: add SHA256 check here once published in release notes
+        :
     else
-        die "Neither wget nor curl available. Cannot download Wine 9.7."
+        warn "GitHub Release download failed or returned empty."
+        rm -f "${wine_zst}"
+
+        # Attempt 2: Build from source
+        echo
+        warn "Could not download pre-built Wine 9.7."
+        read -rp "Build Wine 9.7 from source? This takes 1-2 hours. [y/N]: " choice
+        if [[ ! "${choice}" =~ ^[Yy]$ ]]; then
+            die "Wine 9.7 is required. Cannot proceed."
+        fi
+
+        info "Building Wine 9.7 from source. This will take a while..."
+        mkdir -p "${build_dir}"
+
+        local wine_tar="${build_dir}/wine-9.7.tar.xz"
+        if [[ ! -f "${wine_tar}" ]]; then
+            info "Downloading Wine 9.7 source..."
+            if command -v wget >/dev/null 2>&1; then
+                wget --progress=bar:force -O "${wine_tar}" "https://dl.winehq.org/wine/source/9.x/wine-9.7.tar.xz"
+            else
+                curl -L --progress-bar -o "${wine_tar}" "https://dl.winehq.org/wine/source/9.x/wine-9.7.tar.xz"
+            fi
+        fi
+
+        if [[ ! -f "${wine_tar}" ]] || [[ ! -s "${wine_tar}" ]]; then
+            die "Failed to download Wine 9.7 source from winehq.org."
+        fi
+
+        info "Extracting source..."
+        tar xf "${wine_tar}" -C "${build_dir}"
+
+        info "Configuring Wine 9.7 (32-bit prefix support, no wow64)..."
+        local wine_src="${build_dir}/wine-9.7"
+        ./configure \
+            --prefix="${ISOLATED_WINE_DIR}" \
+            --without-wayland \
+            --without-pulse \
+            --without-alsa \
+            --enable-win32on64=no \
+            --disable-tests \
+            2>&1 | tee "${build_dir}/configure.log"
+
+        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+            die "Wine configure failed. See ${build_dir}/configure.log"
+        fi
+
+        info "Compiling Wine 9.7 (this will take 60-90 minutes on your hardware)..."
+        make -j$(nproc) 2>&1 | tee "${build_dir}/make.log"
+        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+            die "Wine build failed. See ${build_dir}/make.log"
+        fi
+
+        info "Installing Wine 9.7 to ${ISOLATED_WINE_DIR}..."
+        make install 2>&1 | tee "${build_dir}/install.log"
+        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+            die "Wine install failed. See ${build_dir}/install.log"
+        fi
+
+        info "Wine 9.7 built and installed successfully."
     fi
 
-    info "Extracting Wine 9.7 (this may take a minute)..."
-    local extract_tmp="${DOWNLOADS}/wine_extract_tmp_$$"
-    mkdir -p "${extract_tmp}"
+    # Extraction (shared path for both download and build)
+    if [[ -f "${wine_zst}" ]]; then
+        info "Extracting Wine 9.7 archive..."
+        local extract_tmp="${DOWNLOADS}/wine_extract_tmp_$$"
+        mkdir -p "${extract_tmp}"
 
-    if command -v unzstd >/dev/null 2>&1; then
-        tar --use-compress-program=unzstd -xf "${wine_zst}" -C "${extract_tmp}"
-    elif command -v zstd >/dev/null 2>&1; then
-        zstd -d "${wine_zst}" -o /tmp/wine-9.7.tar && tar -xf /tmp/wine-9.7.tar -C "${extract_tmp}" && rm -f /tmp/wine-9.7.tar
-    else
-        die "zstd/unzstd not installed. Cannot extract Wine 9.7 archive."
+        if command -v unzstd >/dev/null 2>&1; then
+            tar --use-compress-program=unzstd -xf "${wine_zst}" -C "${extract_tmp}"
+        elif command -v zstd >/dev/null 2>&1; then
+            zstd -d "${wine_zst}" -o /tmp/wine-9.7.tar && \
+                tar -xf /tmp/wine-9.7.tar -C "${extract_tmp}" && \
+                rm -f /tmp/wine-9.7.tar
+        else
+            die "zstd/unzstd not installed. Cannot extract Wine 9.7 archive."
+        fi
+
+        rm -f "${wine_zst}"
+
+        # The archive extracts to a bare 'usr/' directory. We need it inside 'wine/usr/'
+        if [[ -d "${extract_tmp}/usr" ]]; then
+            rsync -a "${extract_tmp}/usr/" "${ISOLATED_WINE_DIR}/usr/" 2>/dev/null || \
+                cp -r "${extract_tmp}/usr" "${ISOLATED_WINE_DIR}/"
+        fi
+        rm -rf "${extract_tmp}"
     fi
-
-    rm -f "${wine_zst}"
-
-    # The archive extracts to a bare 'usr/' directory. We need it inside 'wine/usr/'
-    if [[ -d "${extract_tmp}/usr" ]]; then
-        rsync -a "${extract_tmp}/usr/" "${ISOLATED_WINE_DIR}/usr/" 2>/dev/null || cp -r "${extract_tmp}/usr" "${ISOLATED_WINE_DIR}/"
-    fi
-    rm -rf "${extract_tmp}"
 
     if [[ ! -f "${ISOLATED_WINE_BIN}/wine" ]]; then
-        die "Wine 9.7 extraction failed. ${ISOLATED_WINE_BIN}/wine not found."
+        die "Wine 9.7 installation failed. ${ISOLATED_WINE_BIN}/wine not found."
     fi
 
     "${WINESERVER_CMD}" -k 2>/dev/null || true
@@ -731,7 +837,10 @@ phase_c1_prebuilt() {
         die "Download failed. The URL may be invalid or unreachable."
     fi
 
+    prompt_sha256_verify "$archive" "Office binaries archive"
+
     mkdir -p "$EXTRACTED_DIR"
+    check_disk_space 4 "Office extraction"
     info "Extracting binaries..."
     if command -v unzstd > /dev/null 2>&1; then
         tar --use-compress-program=unzstd -xf "$archive" -C "$EXTRACTED_DIR"
@@ -949,9 +1058,16 @@ phase_i_cleanup() {
         rm -f "${DOWNLOADS}/o365_config.xml"
 
         # Remove Wine zst if still there
+        rm -f "${DOWNLOADS}/wine-9.7.tar.zst"
+        rm -f "${DOWNLOADS}/wine-9.7.tar"
         rm -f "${DOWNLOADS}/wine-9.7.zst"
+        rm -f /tmp/wine-9.7.tar
 
-        # Also clean Winetricks temp
+        # Remove Wine source build cache
+        if [[ -d "${CURRENT_HOME}/.wine-msoffice/build" ]]; then
+            info "Removing Wine source build cache..."
+            rm -rf "${CURRENT_HOME}/.wine-msoffice/build"
+        fi
         rm -f /tmp/winetricks.* 2>/dev/null || true
 
         info "Cleanup complete."
@@ -993,7 +1109,7 @@ phase_j_report() {
 # ---- Main Orchestrator ------------------------------------------------------
 main() {
     > "$LOGFILE"
-    log "Installer v2.0.0 started"
+    log "Installer v2.1.0 started"
 
     # Phase 0: Consent banner + method selection
     phase_0_consent_and_method

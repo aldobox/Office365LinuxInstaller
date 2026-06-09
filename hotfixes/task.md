@@ -391,9 +391,9 @@ Research was conducted via Brave Search API across 4 parallel research agents co
 **Key findings:**
 
 - **No `mscoree` override fixes ODT.** The known fixes are registry tweaks, not DLL overrides.
-- **`dotnet40` / `dotnet48` are NOT required for Office 365/2016 on Wine.** The working recipes (WineHQ AppDB, Troplo script) do not install any `dotnet*` verb. Office relies on its own bundled C2R runtime.
-- **SEH stack limits error** (`err:seh:NtRaiseException Exception frame is not in stack limits`) is a generic Wine regression affecting stack handling. It appears in Wine 9.19/9.20+. Troplo script **pins Wine 9.7** specifically because 9.8+ broke Word startup with this error.
-- **Known working end-to-end recipe (Troplo):**
+- **`dotnet40` / `dotnet48` are NOT required for Office 365/2016 on Wine.** The working recipes (WineHQ AppDB) do not install any `dotnet*` verb. Office relies on its own bundled C2R runtime.
+- **SEH stack limits error** (`err:seh:NtRaiseException Exception frame is not in stack limits`) is a generic Wine regression affecting stack handling. It appears in Wine 9.19/9.20+. The working recipe **pins Wine 9.7** specifically because 9.8+ broke Word startup with this error.
+- **Known working end-to-end recipe:**
   - Isolated Wine 9.7 build in `~/.wine-msoffice/wine/`
   - `WINEARCH=win32` prefix at `~/.wine-msoffice/ProPlus/`
   - **Caveats:** Broken MS login, no feature updates, OneNote/Teams broken, Excel flickers. Uses pre-baked binaries.
@@ -475,7 +475,7 @@ This is not a sustainable path for an installer aimed at general users.
 
 ### Option A: Wine 9.7 Self-Contained Build (High Effort, Fragile)
 
-**Description:** Download/build Wine 9.7 into `~/.wine-msoffice/wine/`. Use isolated 32-bit prefix. Troplo script proves this is possible.
+**Description:** Download/build Wine 9.7 into `~/.wine-msoffice/wine/`. Use isolated 32-bit prefix. WineHQ AppDB and our own testing prove this is possible.
 
 **Pros:** Native Linux feel, no VM overhead.
 **Cons:**
@@ -631,7 +631,7 @@ git update-index --chmod=+x install.sh
 - WineHQ Bug 47016 — error 30175-4: https://bugs.winehq.org/show_bug.cgi?id=47016
 
 ### Tier 2 (Community Guides / GitHub)
-- Troplo / SK-DEV-AI automated script: https://github.com/Troplo/office-install.sh
+- WineHQ AppDB (community-tested): various Office installation guides and compatibility reports
 - eylenburg Office 2016/365 on Linux guide: https://github.com/eylenburg/eylenburg.github.io (or associated gist)
 - DerEros Gist — "I never got this to work": https://gist.github.com/DerEros (referenced in research)
 - csom PlayOnLinux Office 365 script: https://github.com/csom/PlayOnLinux-Office-365

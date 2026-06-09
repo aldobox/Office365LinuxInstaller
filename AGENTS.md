@@ -5,7 +5,7 @@
 **Name:** Office365LinuxInstaller
 **Type:** Bash-based deployment helper for Microsoft Office 365 on Linux via Wine
 **License:** MIT
-**Version:** 1.0.000
+**Version:** 2.1.0
 **Repository:** https://github.com/aldobox/Office365LinuxInstaller
 
 ## Build & Run
@@ -30,8 +30,10 @@ bash -n uninstall.sh
 
 ## Architecture
 
-- `install.sh` — Main orchestrator (8 phases: A-H)
+- `install.sh` — Main orchestrator (3 methods: Prebuilt, VM Extractor, User-provided)
+- `install-wrapper.sh` — Terminal emulator launcher for TUI environments
 - `uninstall.sh` — Safe removal (process kill → prefix delete → system cleanup)
+- `office365_vm_extractor.sh` — QEMU/KVM VM automation for Method 2 (Windows ISO + ODT + extraction)
 - `wrappers/` — 8 launcher scripts exporting `WINEPREFIX` and `exec`ing Office binaries
 - `desktops/` — 8 `.desktop` files for GNOME/KDE/XFCE menus
 - `icons/` — 8 brand-color SVG placeholders (256x256)

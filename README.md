@@ -3,7 +3,7 @@
 Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu / Debian-based distributions (Xubuntu, Linux Mint, Pop!_OS, etc.).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/aldobox/Office365LinuxInstaller/releases/tag/v2.0.0)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/aldobox/Office365LinuxInstaller/releases/tag/v2.1.0)
 
 ## What This Is
 
