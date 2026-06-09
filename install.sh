@@ -23,6 +23,76 @@ warn()  { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
 error() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 die()   { error "$*"; exit 1; }
 
+# ---- Progress Bar Helpers ---------------------------------------------------
+# Dynamic progress tracking: uses 'progress' command for file-I/O phases
+# (apt, winetricks) and file-size polling for silent phases (ODT download/install)
+
+# Draw a single-line ASCII progress bar
+_draw_bar() {
+    local pct="${1}"
+    local label="${2}"
+    local width=40
+    local filled=$((pct * width / 100))
+    local empty=$((width - filled))
+    # Build bar string
+    local bar=""
+    local i
+    for ((i = 0; i < filled; i++)); do bar="#${bar}"; done
+    for ((i = 0; i < empty; i++)); do bar="${bar} "; done
+    printf "\r[%s] %3d%%  %s" "${bar}" "${pct}" "${label}"
+}
+
+# Poll folder size every 1s and draw a dynamic bar until parent PID dies
+poll_folder_progress() {
+    local folder="${1}"
+    local expected_bytes="${2}"
+    local label="${3}"
+    local parent_pid="${4}"
+    local start_time
+    start_time=$(date +%s)
+
+    while kill -0 "${parent_pid}" 2>/dev/null; do
+        local current_bytes
+        current_bytes=$(du -sb "${folder}" 2>/dev/null | cut -f1)
+        local pct=0
+        if [ "${expected_bytes}" -gt 0 ]; then
+            pct=$((current_bytes * 100 / expected_bytes))
+            [ "${pct}" -gt 100 ] && pct=100
+        fi
+        local current_gb
+        current_gb=$(awk "BEGIN {printf \"%.1f\", ${current_bytes}/1024/1024/1024}")
+        local expected_gb
+        expected_gb=$(awk "BEGIN {printf \"%.1f\", ${expected_bytes}/1024/1024/1024}")
+        local elapsed
+        elapsed=$(($(date +%s) - start_time))
+        local speed="0"
+        if [ "${elapsed}" -gt 0 ]; then
+            speed=$(awk "BEGIN {printf \"%.1f\", (${current_bytes}/${elapsed})/1024/1024}")
+        fi
+        _draw_bar "${pct}" "${current_gb} GB / ${expected_gb} GB  (${speed} MB/s) — ${label}"
+        sleep 1
+    done
+    echo  # Newline after bar completes
+}
+
+# Start background 'progress' monitor for file-I/O phases
+start_progress_monitor() {
+    if command -v progress &>/dev/null; then
+        # -w = watch mode, -M = monitor all processes
+        progress -w -M 2>/dev/null &
+        PROGRESS_PID=$!
+    fi
+}
+
+# Stop background progress monitor
+stop_progress_monitor() {
+    if [ -n "${PROGRESS_PID:-}" ]; then
+        kill "${PROGRESS_PID}" 2>/dev/null || true
+        wait "${PROGRESS_PID}" 2>/dev/null || true
+        unset PROGRESS_PID
+    fi
+}
+
 wait_for_enter() {
     echo
     read -rp "Press Enter to continue..."
@@ -109,7 +179,7 @@ phase_a_dependencies() {
     run_apt_install \
         build-essential gcc-multilib g++-multilib flex bison \
         git wget curl pkg-config gettext \
-        zenity \
+        zenity progress \
         cups-daemon cups-client printer-driver-all \
         system-config-printer printer-driver-cups-pdf \
         msitools \
@@ -121,7 +191,11 @@ phase_a_dependencies() {
         ttf-mscorefonts-installer \
         wine64 wine32 winetricks
 
+    # Start background progress monitor for file-I/O tracking
+    start_progress_monitor
+
     info "Dependencies installed or already present."
+    stop_progress_monitor
 }
 
 # ---- Phase B: Create Clean Wine Prefix --------------------------------------
@@ -154,7 +228,9 @@ phase_b_wine_prefix() {
 
     # Install common redistributables Office expects
     info "Installing Winetricks packages (corefonts, msxml6, gdiplus, dotnet40)..."
+    start_progress_monitor
     winetricks -q corefonts msxml6 gdiplus dotnet40 || warn "Some winetricks packages may have failed; continuing."
+    stop_progress_monitor
 
     # Rebuild dosdevices
     info "Rebuilding Wine dosdevices..."
@@ -282,10 +358,12 @@ EOF
         info "Office download cache found at ${DOWNLOADS}/Office. Skipping /download."
     else
         info "Downloading Office binaries (~4-5 GB). This may take 20-30 minutes..."
-        info "Wine debug output is being suppressed for clarity."
-        # Run from Downloads dir so ODT resolves paths correctly via Wine drive mapping
-        (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /download "${win_config_path}") 2>/dev/null \
-            || die "ODT /download failed."
+        # Run ODT /download in background so we can poll folder size for progress
+        (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /download "${win_config_path}") 2>/dev/null &
+        local download_pid=$!
+        # 4.5 GB = 4831838208 bytes
+        poll_folder_progress "${DOWNLOADS}/Office" 4831838208 "Downloading Office" "${download_pid}"
+        wait "${download_pid}" || die "ODT /download failed."
 
         # Verify download actually happened (don't trust exit code alone)
         if [ ! -d "${office_data}" ] || [ "$(ls -A "${office_data}" 2>/dev/null | wc -l)" -eq 0 ]; then
@@ -297,8 +375,13 @@ EOF
     # Install from cache into prefix
     info "Installing Office from cache into Wine prefix..."
     info "This may take 10-15 minutes."
-    (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /configure "${win_config_path}") 2>/dev/null \
-        || die "ODT /configure failed."
+    # Run ODT /configure in background so we can poll prefix size for progress
+    (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /configure "${win_config_path}") 2>/dev/null &
+    local configure_pid=$!
+    # Prefix grows from ~100 MB to ~2.5+ GB during install
+    # 3.0 GB = 3221225472 bytes (generous estimate, bar clamps at 100%%)
+    poll_folder_progress "${WINE_PREFIX}" 3221225472 "Installing Office" "${configure_pid}"
+    wait "${configure_pid}" || die "ODT /configure failed."
 
     # Verify installation
     local word_path="${WINE_PREFIX}/drive_c/Program Files/Microsoft Office/root/Office16/WINWORD.EXE"
