@@ -135,7 +135,11 @@ phase_b_wine_prefix() {
     fi
 
     export WINEPREFIX="${WINE_PREFIX}"
-    export WINEARCH="win64"
+    # CRITICAL: Use 32-bit prefix. 64-bit prefix causes:
+    #   - dotnet40 install failure (mscoree.dll overwrite bug)
+    #   - SEH crash in wow64 layer (err:seh:NtRaiseException)
+    #   - OfficeClickToRun.exe deadlock
+    export WINEARCH="win32"
 
     # Initialize prefix
     wineboot --init
@@ -143,17 +147,19 @@ phase_b_wine_prefix() {
     # Set Windows version to Windows 10 (required by modern Office)
     wine reg add "HKCU\\Software\\Wine" /v Version /d "win10" /f || true
 
-    # Install common redistributables Office expects.
-    # Note: Do NOT install dotnet40 via winetricks — it breaks mscoree.dll on
-    # Wine 10.0 64-bit prefixes. We force Wine's built-in mscoree instead.
-    info "Installing Winetricks packages (corefonts, msxml6, gdiplus)..."
-    winetricks -q corefonts msxml6 gdiplus || warn "Some winetricks packages may have failed; continuing."
+    # Registry tweaks required for Office 365 stability on Wine
+    info "Applying Wine registry tweaks for Office compatibility..."
+    wine reg add "HKCU\\Software\\Wine\\Direct2D" /v max_version_factory /d "0" /f || true
+    wine reg add "HKCU\\Software\\Wine\\Direct3D" /v MaxVersionGL /d "30002" /f || true
 
-    # Rebuild dosdevices exactly as in the original clean structure
+    # Install common redistributables Office expects
+    info "Installing Winetricks packages (corefonts, msxml6, gdiplus, dotnet40)..."
+    winetricks -q corefonts msxml6 gdiplus dotnet40 || warn "Some winetricks packages may have failed; continuing."
+
+    # Rebuild dosdevices
     info "Rebuilding Wine dosdevices..."
     rm -rf "${WINE_PREFIX}/dosdevices"
     mkdir -p "${WINE_PREFIX}/dosdevices"
-
     ln -s ../drive_c "${WINE_PREFIX}/dosdevices/c:"
     ln -s /          "${WINE_PREFIX}/dosdevices/z:"
     ln -s /dev/null  "${WINE_PREFIX}/dosdevices/c::"
@@ -163,8 +169,8 @@ phase_b_wine_prefix() {
 
     # Rebuild user folders
     info "Rebuilding user folders..."
-    mkdir -p "${WINE_PREFIX}/drive_c/users/crossover/AppData/Local"
-    mkdir -p "${WINE_PREFIX}/drive_c/users/crossover/AppData/Roaming"
+    mkdir -p "${WINE_PREFIX}/drive_c/users/${USER}/AppData/Local"
+    mkdir -p "${WINE_PREFIX}/drive_c/users/${USER}/AppData/Roaming"
 
     # Fix ownership/permissions
     sudo chown -R "${USER}:${USER}" "${WINE_PREFIX}"
@@ -243,17 +249,13 @@ phase_d_install_office() {
     info "Phase D: Installing official Office into Wine prefix..."
 
     export WINEPREFIX="${WINE_PREFIX}"
-    export WINEARCH="win64"
-    # Force Wine's built-in mscoree (.NET stub) — installing dotnet40 via
-    # winetricks breaks it on Wine 10.0 64-bit prefixes. The ODT works fine
-    # with the built-in stub.
-    export WINEDLLOVERRIDES="mscoree=b"
+    export WINEARCH="win32"
 
     # Use Downloads directory for config — Wine maps /tmp poorly via Z:\ drive
     local config_path="${DOWNLOADS}/o365_configuration.xml"
     cat > "${config_path}" <<EOF
 <Configuration>
-  <Add OfficeClientEdition="64" Channel="Current">
+  <Add OfficeClientEdition="32" Channel="Current">
     <Product ID="O365ProPlusRetail">
       <Language ID="en-GB" />
     </Product>
