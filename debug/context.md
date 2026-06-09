@@ -189,7 +189,6 @@ As of v1.0.101, Phase D was completely rewritten to support the **Office Deploym
 3. Verify `microsoft.com/en-us/microsoft-365/download-office` opens correctly
 4. Check that `uninstall.sh` leaves no files in `/usr/share/applications/`, `/usr/share/icons/`, `/opt/launchers/`
 5. Update version string in `install.sh`, `uninstall.sh`, and `AGENTS.md`
-6. Verify `install-debug.sh` syntax with `bash -n`
 
 ### 8.2 If a User Reports "Installer Says Dependencies Installed But Nothing Was Installed"
 - Likely cause: `apt-get` failed (e.g., dpkg lock held by another process) but `|| true` masked the error. This was fixed in v1.0.101 by removing `|| true` from the apt-get install line.

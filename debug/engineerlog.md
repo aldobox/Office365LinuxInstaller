@@ -134,7 +134,7 @@ rm ~/.local/share/applications/mso365-installer.desktop
 
 ### 2026-06-09 — v1.0.101+ dpkg Lock Fix
 **Author:** aldobox
-**Scope:** `install.sh` Phase A + `install-debug.sh`
+**Scope:** `install.sh` Phase A
 **Trigger:** User's installer crashed with `E: Unable to acquire the dpkg frontend lock`. Screenshot analysis revealed PID 31621 was a **hanging prior `apt-get install`** (specifically `printer-driver-cups-pdf.postinst configure`) that never completed. The script had `|| true` which masked the failure and printed a misleading "Dependencies installed" message.
 
 #### Changes
@@ -144,7 +144,6 @@ rm ~/.local/share/applications/mso365-installer.desktop
 - [x] **Removed `|| true` from `apt-get install`** so the script actually fails on real apt errors (was masking the lock failure)
 - [x] Kept `|| true` on `dpkg --add-architecture i386` (safe to ignore if already added)
 - [x] Added `DEBIAN_FRONTEND=noninteractive` to suppress `debconf` interactive prompts (e.g., `Password for root on localhost?`)
-- [x] Added `install-debug.sh` launcher: captures `bash -x` trace + environment to `debug/logs/`
 - [x] Batched all ~8 separate `sudo apt-get install` calls into 1 compound command (reduces sudo prompts)
 - [x] Added friendly sudo explanation at script start: *"This installer uses sudo to install system packages..."*
 
