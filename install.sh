@@ -226,11 +226,11 @@ phase_d_install_office() {
     export WINEPREFIX="${WINE_PREFIX}"
     export WINEARCH="win64"
 
-    # Generate ODT configuration XML
-    local config_path="/tmp/o365_configuration.xml"
+    # Use Downloads directory for config — Wine maps /tmp poorly via Z:\ drive
+    local config_path="${DOWNLOADS}/o365_configuration.xml"
     cat > "${config_path}" <<EOF
 <Configuration>
-  <Add OfficeClientEdition="64" Channel="Current">
+  <Add OfficeClientEdition="64" Channel="Current" SourcePath="${DOWNLOADS}/OfficeCache">
     <Product ID="O365ProPlusRetail">
       <Language ID="en-GB" />
     </Product>
@@ -245,20 +245,30 @@ phase_d_install_office() {
 EOF
 
     local office_cache="${DOWNLOADS}/OfficeCache"
+    mkdir -p "${office_cache}"
 
-    # Check if download cache already exists
+    # Check if download cache already exists and is non-empty
     if [ -d "${office_cache}" ] && [ "$(ls -A "${office_cache}" 2>/dev/null | wc -l)" -gt 0 ]; then
         info "Office download cache found at ${office_cache}. Skipping /download."
     else
-        info "Downloading Office binaries (~4-5 GB). This will take time..."
-        mkdir -p "${office_cache}"
-        wine "${INSTALLER_PATH}" /download "${config_path}" || die "ODT /download failed."
+        info "Downloading Office binaries (~4-5 GB). This may take 20-30 minutes..."
+        info "Wine debug output is being suppressed for clarity."
+        # Run from Downloads dir so ODT resolves paths correctly via Wine drive mapping
+        (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /download "${config_path}") 2>/dev/null \
+            || die "ODT /download failed."
+
+        # Verify download actually happened (don't trust exit code alone)
+        if [ ! -d "${office_cache}" ] || [ "$(ls -A "${office_cache}" 2>/dev/null | wc -l)" -eq 0 ]; then
+            die "ODT /download reported success but ${office_cache} is empty. Config path issue?"
+        fi
         info "Download complete."
     fi
 
     # Install from cache into prefix
     info "Installing Office from cache into Wine prefix..."
-    wine "${INSTALLER_PATH}" /configure "${config_path}" || die "ODT /configure failed."
+    info "This may take 10-15 minutes."
+    (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /configure "${config_path}") 2>/dev/null \
+        || die "ODT /configure failed."
 
     # Verify installation
     local word_path="${WINE_PREFIX}/drive_c/Program Files/Microsoft Office/root/Office16/WINWORD.EXE"
@@ -339,18 +349,22 @@ phase_h_test() {
     export WINEPREFIX="${WINE_PREFIX}"
     local word_path="${WINE_PREFIX}/drive_c/Program Files/Microsoft Office/root/Office16/WINWORD.EXE"
 
+    if [ ! -f "${word_path}" ]; then
+        die "Cannot test: WINWORD.EXE not found at ${word_path}. Office installation failed."
+    fi
+
     # Launch Word briefly then kill to confirm the binary runs
     echo "Launching WINWORD.EXE for 5 seconds to verify execution..."
     timeout 5 wine "${word_path}" &>/dev/null || true
     pkill -9 -f WINWORD.EXE || true
 
-    info "Test complete. If no severe errors were shown above, installation is functional."
+    info "Test complete. Installation verified."
 }
 
 # ---- Phase I: Cleanup Prompt -------------------------------------------------
 phase_i_cleanup() {
     local office_cache="${DOWNLOADS}/OfficeCache"
-    local tmp_config="/tmp/o365_configuration.xml"
+    local config_file="${DOWNLOADS}/o365_configuration.xml"
 
     echo
     read -rp "Delete Office download cache and temp files to save disk space? [y/n]: " answer
@@ -359,8 +373,12 @@ phase_i_cleanup() {
             rm -rf "${office_cache}"
             info "Office cache deleted."
         fi
-        if [ -f "${tmp_config}" ]; then
-            rm -f "${tmp_config}"
+        if [ -f "${config_file}" ]; then
+            rm -f "${config_file}"
+            info "ODT config file deleted."
+        fi
+        if [ -f "/tmp/o365_configuration.xml" ]; then
+            rm -f "/tmp/o365_configuration.xml"
         fi
         # Also clean Winetricks temp
         rm -f /tmp/winetricks.* 2>/dev/null || true
