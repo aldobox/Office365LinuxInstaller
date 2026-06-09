@@ -144,8 +144,9 @@ phase_b_wine_prefix() {
     wine reg add "HKCU\\Software\\Wine" /v Version /d "win10" /f || true
 
     # Install common redistributables Office expects
-    info "Installing Winetricks packages (corefonts, msxml6, gdiplus)..."
-    winetricks -q corefonts msxml6 gdiplus || warn "Some winetricks packages may have failed; continuing."
+    # 'dotnet40' is required for the Office Deployment Tool (ODT) to run under Wine.
+    info "Installing Winetricks packages (corefonts, msxml6, gdiplus, dotnet40)..."
+    winetricks -q corefonts msxml6 gdiplus dotnet40 || warn "Some winetricks packages may have failed; continuing."
 
     # Rebuild dosdevices exactly as in the original clean structure
     info "Rebuilding Wine dosdevices..."
@@ -177,6 +178,21 @@ phase_b_wine_prefix() {
 # ---- Phase C: Prompt for Official Installer ---------------------------------
 phase_c_get_installer() {
     info "Phase C: Preparing for official Office installer download..."
+
+    # If installer is already present, skip the browser prompt entirely
+    local auto_installer=""
+    for candidate in "${DOWNLOADS}/Setup.exe" "${DOWNLOADS}/OfficeSetup.exe"; do
+        if [ -f "${candidate}" ]; then
+            auto_installer="${candidate}"
+            break
+        fi
+    done
+
+    if [ -n "${auto_installer}" ]; then
+        info "Found existing installer: ${auto_installer}. Skipping browser prompt."
+        INSTALLER_PATH="${auto_installer}"
+        return 0
+    fi
 
     echo
     echo "============================================================================"
@@ -232,7 +248,7 @@ phase_d_install_office() {
     local config_path="${DOWNLOADS}/o365_configuration.xml"
     cat > "${config_path}" <<EOF
 <Configuration>
-  <Add OfficeClientEdition="64" Channel="Current" SourcePath="${DOWNLOADS}/OfficeCache">
+  <Add OfficeClientEdition="64" Channel="Current">
     <Product ID="O365ProPlusRetail">
       <Language ID="en-GB" />
     </Product>
@@ -246,22 +262,27 @@ phase_d_install_office() {
 </Configuration>
 EOF
 
-    local office_cache="${DOWNLOADS}/OfficeCache"
-    mkdir -p "${office_cache}"
+    # ODT downloads to a default location under ~/Downloads/Office/
+    # We use the Data/ subdirectory as the marker that download succeeded
+    # Convert Linux config path to Windows path for ODT
+    local win_config_path
+    win_config_path=$(wine winepath -w "${config_path}" 2>/dev/null) || die "Failed to convert config path to Windows format."
+
+    local office_data="${DOWNLOADS}/Office/Data"
 
     # Check if download cache already exists and is non-empty
-    if [ -d "${office_cache}" ] && [ "$(ls -A "${office_cache}" 2>/dev/null | wc -l)" -gt 0 ]; then
-        info "Office download cache found at ${office_cache}. Skipping /download."
+    if [ -d "${office_data}" ] && [ "$(ls -A "${office_data}" 2>/dev/null | wc -l)" -gt 0 ]; then
+        info "Office download cache found at ${DOWNLOADS}/Office. Skipping /download."
     else
         info "Downloading Office binaries (~4-5 GB). This may take 20-30 minutes..."
         info "Wine debug output is being suppressed for clarity."
         # Run from Downloads dir so ODT resolves paths correctly via Wine drive mapping
-        (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /download "${config_path}") 2>/dev/null \
+        (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /download "${win_config_path}") 2>/dev/null \
             || die "ODT /download failed."
 
         # Verify download actually happened (don't trust exit code alone)
-        if [ ! -d "${office_cache}" ] || [ "$(ls -A "${office_cache}" 2>/dev/null | wc -l)" -eq 0 ]; then
-            die "ODT /download reported success but ${office_cache} is empty. Config path issue?"
+        if [ ! -d "${office_data}" ] || [ "$(ls -A "${office_data}" 2>/dev/null | wc -l)" -eq 0 ]; then
+            die "ODT /download reported success but ${office_data} is empty. Config path issue?"
         fi
         info "Download complete."
     fi
@@ -269,7 +290,7 @@ EOF
     # Install from cache into prefix
     info "Installing Office from cache into Wine prefix..."
     info "This may take 10-15 minutes."
-    (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /configure "${config_path}") 2>/dev/null \
+    (cd "${DOWNLOADS}" && wine "${INSTALLER_PATH}" /configure "${win_config_path}") 2>/dev/null \
         || die "ODT /configure failed."
 
     # Verify installation
@@ -365,14 +386,14 @@ phase_h_test() {
 
 # ---- Phase I: Cleanup Prompt -------------------------------------------------
 phase_i_cleanup() {
-    local office_cache="${DOWNLOADS}/OfficeCache"
+    local office_dir="${DOWNLOADS}/Office"
     local config_file="${DOWNLOADS}/o365_configuration.xml"
 
     echo
     read -rp "Delete Office download cache and temp files to save disk space? [y/n]: " answer
     if [[ "${answer}" =~ ^[Yy]$ ]]; then
-        if [ -d "${office_cache}" ]; then
-            rm -rf "${office_cache}"
+        if [ -d "${office_dir}" ]; then
+            rm -rf "${office_dir}"
             info "Office cache deleted."
         fi
         if [ -f "${config_file}" ]; then
@@ -385,7 +406,7 @@ phase_i_cleanup() {
         # Also clean Winetricks temp
         rm -f /tmp/winetricks.* 2>/dev/null || true
     else
-        info "Cache preserved at ${office_cache}."
+        info "Cache preserved at ${office_dir}."
     fi
 }
 
