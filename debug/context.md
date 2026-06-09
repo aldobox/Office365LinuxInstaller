@@ -169,8 +169,9 @@ As of v1.0.101, Phase D was completely rewritten to support the **Office Deploym
 - [ ] Support detecting `OfficeSetup.exe` in additional download paths (`~/Downloads/Office/`, browser-specific subdirectories)
 
 ### 7.2 Mid-Term (v1.2.x)
-- [x] Add `config.xml` support for Office Deployment Tool (ODT) — **COMPLETED in v1.0.101**
-- [ ] Integrate `winetricks` dotnet48 / corefonts checks as hard prerequisites (currently warnings)
+  - [x] Add `config.xml` support for Office Deployment Tool (ODT) — **COMPLETED in v1.0.101**
+  - [x] Add dpkg lock detection with smart wait — **COMPLETED in v1.0.101**
+  - [ ] Integrate `winetricks` dotnet48 / corefonts checks as hard prerequisites (currently warnings)
 - [ ] Provide `.deb` packaging for one-shot `dpkg -i` installation
 
 ### 7.3 Long-Term (v2.x)
@@ -188,12 +189,19 @@ As of v1.0.101, Phase D was completely rewritten to support the **Office Deploym
 3. Verify `microsoft.com/en-us/microsoft-365/download-office` opens correctly
 4. Check that `uninstall.sh` leaves no files in `/usr/share/applications/`, `/usr/share/icons/`, `/opt/launchers/`
 5. Update version string in `install.sh`, `uninstall.sh`, and `AGENTS.md`
+6. Verify `install-debug.sh` syntax with `bash -n`
 
-### 8.2 If a User Reports "My Office Disappeared After Reboot"
-- Likely cause: `wineserver` or `wine` process was killed uncleanly, corrupting the prefix registry.
-- Resolution: `./install.sh` again — it rebuilds the prefix fresh and re-runs ODT `/configure` (which is idempotent for local cache installs).
+### 8.2 If a User Reports "Installer Says Dependencies Installed But Nothing Was Installed"
+- Likely cause: `apt-get` failed (e.g., dpkg lock held by another process) but `|| true` masked the error. This was fixed in v1.0.101 by removing `|| true` from the apt-get install line.
+- If user is on a pre-v1.0.101 version: check for `E: Unable to acquire the dpkg frontend lock` in terminal output.
+- Resolution: Kill any hanging `apt-get` or `dpkg` processes, then re-run `./install.sh`. The new `wait_for_dpkg_lock()` function handles this automatically.
 
-### 8.3 If Icons Do Not Appear in the Menu
+### 8.3 If a User Reports Wine COM Errors (`0x80004002`)
+- These are **normal Wine 10.0 initialization warnings** when creating a fresh 64-bit prefix.
+- They do **not** indicate a crash or installation failure.
+- Only investigate further if the script exits with a non-zero code *after* these messages.
+
+### 8.4 If Icons Do Not Appear in the Menu
 - Run `sudo gtk-update-icon-cache /usr/share/icons/hicolor/`
 - Run `sudo update-desktop-database /usr/share/applications/`
 - Log out and log back in (XFCE caches menu entries aggressively).

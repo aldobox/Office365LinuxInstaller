@@ -132,6 +132,36 @@ rm ~/.local/share/applications/mso365-installer.desktop
 
 ---
 
+### 2026-06-09 — v1.0.101+ dpkg Lock Fix
+**Author:** aldobox
+**Scope:** `install.sh` Phase A + `install-debug.sh`
+**Trigger:** User's installer crashed with `E: Unable to acquire the dpkg frontend lock`. Screenshot analysis revealed PID 31621 was a **hanging prior `apt-get install`** (specifically `printer-driver-cups-pdf.postinst configure`) that never completed. The script had `|| true` which masked the failure and printed a misleading "Dependencies installed" message.
+
+#### Changes
+- [x] Added `wait_for_dpkg_lock()` helper function: checks `/var/lib/dpkg/lock-frontend` every 4s for up to 12s, reports blocking process name via `fuser` + `ps`
+- [x] If lock persists after 12s, prompts user: *"Press Enter once the other apt/dpkg process has finished"*
+- [x] If still locked after user prompt, script dies with clear error
+- [x] **Removed `|| true` from `apt-get install`** so the script actually fails on real apt errors (was masking the lock failure)
+- [x] Kept `|| true` on `dpkg --add-architecture i386` (safe to ignore if already added)
+- [x] Added `DEBIAN_FRONTEND=noninteractive` to suppress `debconf` interactive prompts (e.g., `Password for root on localhost?`)
+- [x] Added `install-debug.sh` launcher: captures `bash -x` trace + environment to `debug/logs/`
+- [x] Batched all ~8 separate `sudo apt-get install` calls into 1 compound command (reduces sudo prompts)
+- [x] Added friendly sudo explanation at script start: *"This installer uses sudo to install system packages..."*
+
+#### Issues Found / Fixed
+- **Issue:** Script printed `[INFO] Dependencies installed or already present.` even though `apt-get` failed with lock error.
+  - Root cause: `|| true` at end of `apt-get install` line suppressed the error exit code.
+  - Fix: Removed `|| true`. Only `dpkg --add-architecture` retains `|| true`.
+- **Issue:** Wine COM errors (`0x80004002`, `IRpcStubBuffer`) in screenshot caused panic.
+  - Root cause: Red herring — these are normal Wine 10.0 initialization warnings when creating a fresh prefix. Not the actual crash.
+  - Fix: Documented as harmless in troubleshooting.
+
+#### Service State
+- No persistent services. Pure Bash/Wine user-space tool.
+- Version remains `1.0.101` (no version bump for this fix — cumulative patch)
+
+---
+
 ## Notes for Future Agents
 
 - Always verify `bash -n` on any `.sh` file before committing.
