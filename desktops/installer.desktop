@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Install Office 365
+Comment=Clean Microsoft Office 365 installation via Wine (Method 1/2/3)
+Exec=xterm -hold -T "Office 365 Installer" -e "bash -c 'cd %D/.. && ./install.sh; exec bash'"
+Icon=application-x-executable
+Type=Application
+Categories=Office;System;
+StartupNotify=true
+Terminal=false

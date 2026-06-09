@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Keep terminal open on error so user can read the message
-trap 'echo; echo "[FATAL] Installation failed at line $LINENO. See error above."; echo "If you need help, run with: bash -x install.sh"; read -rp "Press Enter to exit..."; exit 1' ERR
+# If launched from a TUI (no TTY), sleep instead of read to avoid blocking on pipe input
+trap 'echo; echo "[FATAL] Installation failed at line $LINENO. See error above."; echo "If you need help, run with: bash -x install.sh"; if [ -t 0 ]; then read -rp "Press Enter to exit..."; else echo "Check log: $LOGFILE"; sleep 10; fi; exit 1' ERR
 
 # =============================================================================
 # Office365LinuxInstaller
@@ -333,8 +334,10 @@ stop_progress_monitor() {
 }
 
 wait_for_enter() {
-    echo
-    read -rp "Press Enter to continue..."
+    if [ -t 0 ]; then
+        echo
+        read -rp "Press Enter to continue..."
+    fi
 }
 
 # ---- Lock Wait Helper -------------------------------------------------------
