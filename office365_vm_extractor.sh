@@ -3,14 +3,14 @@ set -euo pipefail
 
 # =============================================================================
 # Office365 VM Extractor
-# Creates a headless Windows 10 VM, runs ODT inside it, extracts Office binaries
+# Creates a headless Windows 11 VM, runs ODT inside it, extracts Office binaries
 # Version: 2.1.1
 # =============================================================================
 
 # ---- Configuration ----------------------------------------------------------
 VM_NAME="office365-extractor"
 VM_DIR="${HOME}/.office365-extractor-vm"
-VM_RAM_MB=3072
+VM_RAM_MB=6144
 VM_VCPUS=2
 VM_SIZE_GB=25
 WIN_USER="OfficeUser"
@@ -19,14 +19,14 @@ EXTRACTED_DIR="${HOME}/.office365-extracted"
 DOWNLOADS="${HOME}/Downloads"
 LOGFILE="/tmp/office365_vm_extractor.log"
 
-# Windows 10 Evaluation ISO (official Microsoft, no key needed, 90-day trial)
-# SHA256 source: https://download.microsoft.com/download/c/1/1/c11d2ca5-967c-45c0-bc7d-2d9ca3f1fe07/Windows10Enterprise22H2HashValues.pdf
-# Find the row for your language/architecture, then paste the SHA256 below.
-# If Microsoft re-releases the ISO with updated cumulative updates, the hash may change.
-# In that case the script warns you, shows the computed hash, and asks whether to proceed.
-WIN_ISO_URL="https://software-download.microsoft.com/download/pr/Win10_22H2_English_x64.iso"
-WIN_ISO_NAME="Windows10_Evaluation.iso"
-# TODO: Update this hash from the official PDF before release.
+# Windows 11 Evaluation ISO
+# Microsoft Evaluation Center URL (requires login):
+#   https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise
+# The script will open this page in your browser. Log in, download the ISO,
+# and the script will detect it automatically.
+EVAL_CENTER_URL="https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise"
+WIN_ISO_NAME="Windows11_Evaluation.iso"
+# TODO: Update this hash once you obtain the official SHA256 from Microsoft.
 WIN_ISO_SHA256="PLACEHOLDER_UPDATE_FROM_MICROSOFT"
 
 # ODT URL (from Microsoft). Microsoft does not publish an official SHA256 for this utility.
@@ -99,17 +99,17 @@ phase_1_prerequisites() {
         die "/dev/kvm not found. Is kvm kernel module loaded?"
     fi
 
-    # Check available RAM
+    # Check available RAM (7GB free minimum for Win11 VM)
     local avail_ram_kb
     avail_ram_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-    if [[ "$avail_ram_kb" -lt 4194304 ]]; then
-        warn "Less than 4GB RAM available (${avail_ram_kb} KB)."
+    if [[ "$avail_ram_kb" -lt 7340032 ]]; then
+        warn "Less than 7GB RAM available (${avail_ram_kb} KB)."
         read -rp "Continue anyway? [y/N]: " ans
         [[ "$ans" =~ ^[Yy]$ ]] || die "Aborted."
     fi
 
     # Check required commands
-    for cmd in qemu-system-x86_64 qemu-img virt-install virsh guestmount qemu-nbd ntfsfix; do
+    for cmd in qemu-system-x86_64 qemu-img virt-install virsh guestmount qemu-nbd ntfsfix swtpm; do
         if ! command -v "$cmd" > /dev/null 2>&1; then
             die "Required command not found: $cmd. Run install.sh with Method 2 first."
         fi
@@ -118,31 +118,144 @@ phase_1_prerequisites() {
     log "Phase 1: Prerequisites OK"
 }
 
-# ---- Phase 2: Download Windows ISO -----------------------------------------
+# ---- Phase 2: Download Windows 11 Evaluation ISO ----------------------------
 phase_2_download_iso() {
-    info "Phase 2: Downloading Windows 10 Evaluation ISO..."
+    info "Phase 2: Obtaining Windows 11 Evaluation ISO..."
     log "Phase 2: ISO download"
 
-    check_disk_space 6 "Windows ISO download"
+    check_disk_space 8 "Windows 11 ISO download"
 
     mkdir -p "$VM_DIR"
     local iso_path="${VM_DIR}/${WIN_ISO_NAME}"
 
-    if [[ -f "$iso_path" ]]; then
+    if [[ -s "$iso_path" ]]; then
         info "Windows ISO already present. Verifying..."
         verify_sha256 "$iso_path" "$WIN_ISO_SHA256" "Windows ISO"
         return 0
     fi
 
-    if command -v wget > /dev/null 2>&1; then
-        wget --progress=bar:force -O "$iso_path" "$WIN_ISO_URL" 2>&1 | tail -f -n +6
+    # Remove any stale zero-byte or partial file before download
+    rm -f "$iso_path"
+
+    # Microsoft Evaluation Center requires account login.
+    # We open the browser for the user, then poll for the downloaded ISO.
+    info "Microsoft requires login to download evaluation ISOs."
+    info "Opening browser to the Evaluation Center..."
+    info "URL: ${EVAL_CENTER_URL}"
+    log "Opening browser for manual ISO download"
+
+    if command -v xdg-open > /dev/null 2>&1; then
+        xdg-open "$EVAL_CENTER_URL" 2>/dev/null || warn "Could not open browser automatically."
+    fi
+
+    echo
+    echo "============================================================"
+    echo " MANUAL DOWNLOAD REQUIRED"
+    echo "============================================================"
+    echo
+    echo "1. Your browser should be open to the Microsoft Evaluation Center."
+    echo "2. Log in with your Microsoft account."
+    echo "3. Download: Windows 11 Enterprise Evaluation ISO"
+    echo "4. Save it to ONE of these locations:"
+    echo "     a) ~/Downloads/"
+    echo "     b) ${VM_DIR}/"
+    echo
+    echo "The script will automatically detect the file."
+    echo
+
+    # Poll loop: scan for ISO downloads
+    local poll_count=0
+    local max_polls=120  # 120 * 5s = 10 minutes
+    local detected_iso=""
+
+    while [[ $poll_count -lt $max_polls ]]; do
+        sleep 5
+        poll_count=$((poll_count + 1))
+
+        # Scan for .iso files in common download locations
+        detected_iso=""
+        for dir in "$VM_DIR" "$DOWNLOADS"; do
+            if [[ -d "$dir" ]]; then
+                # Find .iso files larger than 4GB (valid Windows ISO)
+                while IFS= read -r -d '' candidate; do
+                    local size
+                    size=$(stat -c%s "$candidate" 2>/dev/null || echo 0)
+                    if [[ $size -gt 4294967296 ]]; then
+                        detected_iso="$candidate"
+                        break 2
+                    fi
+                done < <(find "$dir" -maxdepth 1 -name '*.iso' -print0 2>/dev/null)
+
+                # Also check for Firefox/Chrome partial downloads (.iso.part)
+                while IFS= read -r -d '' candidate; do
+                    local size
+                    size=$(stat -c%s "$candidate" 2>/dev/null || echo 0)
+                    if [[ $size -gt 4294967296 ]]; then
+                        info "Partial download detected ($(basename "$candidate")). Waiting for completion..."
+                        # Wait up to 30 more seconds for .part to disappear
+                        local wait_part=0
+                        while [[ $wait_part -lt 6 ]]; do
+                            sleep 5
+                            wait_part=$((wait_part + 1))
+                            if [[ ! -f "$candidate" ]]; then
+                                # .part disappeared, check for .iso
+                                local base_name
+                                base_name="${candidate%.part}"
+                                if [[ -f "$base_name" ]]; then
+                                    detected_iso="$base_name"
+                                    break 3
+                                fi
+                            fi
+                        done
+                    fi
+                done < <(find "$dir" -maxdepth 1 -name '*.iso.part' -print0 2>/dev/null)
+            fi
+        done
+
+        # Show progress dot every 30 seconds
+        if [[ $((poll_count % 6)) -eq 0 ]]; then
+            echo -n "."
+        fi
+    done
+    echo
+
+    if [[ -n "$detected_iso" ]]; then
+        info "Detected ISO: $detected_iso"
+        echo
+        read -rp "Use this file? [Y/n/path]: " choice
+        if [[ -z "$choice" || "$choice" =~ ^[Yy]$ ]]; then
+            info "Importing ISO to ${iso_path}..."
+            mv "$detected_iso" "$iso_path"
+        elif [[ -f "$choice" ]]; then
+            info "Importing ISO from ${choice}..."
+            mv "$choice" "$iso_path"
+        else
+            die "No valid ISO selected. Cannot proceed."
+        fi
     else
-        curl -L --progress-bar -o "$iso_path" "$WIN_ISO_URL"
+        # Timeout fallback: ask user for path
+        echo
+        warn "No ISO auto-detected after 10 minutes."
+        read -rp "Enter full path to downloaded ISO (or ABORT): " manual_path
+        if [[ "${manual_path^^}" == "ABORT" ]]; then
+            die "Aborted by user."
+        fi
+        if [[ -f "$manual_path" ]]; then
+            local size
+            size=$(stat -c%s "$manual_path" 2>/dev/null || echo 0)
+            if [[ $size -lt 4294967296 ]]; then
+                die "File too small to be a valid Windows 11 ISO."
+            fi
+            info "Importing ISO..."
+            mv "$manual_path" "$iso_path"
+        else
+            die "File not found: $manual_path"
+        fi
     fi
 
     verify_sha256 "$iso_path" "$WIN_ISO_SHA256" "Windows ISO"
 
-    log "Phase 2: ISO downloaded"
+    log "Phase 2: ISO obtained"
 }
 
 # ---- Phase 3: Create answer files + ODT Config -----------------------------
@@ -169,10 +282,29 @@ phase_3_answer_file() {
 </Configuration>
 XMLEOF
 
-    # Stage 1 autounattend: Windows install + register ODT for next boot + shutdown
+    # Windows 11 unattended install
+    # Uses LabConfig bypasses (TPM, SecureBoot, RAM) in Specialize pass
+    # + BypassNRO registry in FirstLogonCommands for local account creation
     cat > "${VM_DIR}/autounattend/autounattend.xml" <<XMLEOF
 <?xml version="1.0" encoding="utf-8"?>
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <!-- Specialize: bypass Windows 11 hardware requirements -->
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+    </component>
+  </settings>
+
   <settings pass="oobeSystem">
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
       <UserAccounts>
@@ -195,19 +327,23 @@ XMLEOF
         <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
         <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
         <NetworkLocation>Work</NetworkLocation>
-        <SkipMachineOOBE>true</SkipMachineOOBE>
-        <SkipUserOOBE>true</SkipUserOOBE>
       </OOBE>
       <FirstLogonCommands>
-        <!-- Order 1: Disable Fast Startup so shutdown is clean for guestmount -->
+        <!-- Order 1: Bypass Network Requirement for OOBE -->
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
+          <CommandLine>reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f</CommandLine>
+          <Description>Allow local account creation without internet</Description>
+        </SynchronousCommand>
+        <!-- Order 2: Disable Fast Startup so shutdown is clean for guestmount -->
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
           <CommandLine>powercfg /h off</CommandLine>
           <Description>Disable hibernation / Fast Startup</Description>
         </SynchronousCommand>
-        <!-- Order 2: Create ODT install script and register for RunOnce on next boot -->
+        <!-- Order 3: Create ODT install script and register for RunOnce on next boot -->
         <SynchronousCommand wcm:action="add">
-          <Order>2</Order>
+          <Order>3</Order>
           <CommandLine>powershell -ExecutionPolicy Bypass -Command "\$ProgressPreference = 'SilentlyContinue'; \$script = @'
 \$log = \"C:\\odt_install.log\"
 \"[START] ODT install script running\" | Out-File -Append -FilePath \$log
@@ -238,9 +374,9 @@ shutdown /s /t 0
 '@; Set-Content -Path 'C:\\odt_install.ps1' -Value \$script; New-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce' -Name 'O365Install' -Value \"powershell -ExecutionPolicy Bypass -File C:\\odt_install.ps1\" -PropertyType String -Force"</CommandLine>
           <Description>Create ODT install script and register for next boot</Description>
         </SynchronousCommand>
-        <!-- Order 3: Shutdown after first logon (Stage 1 complete) -->
+        <!-- Order 4: Shutdown after first logon (Stage 1 complete) -->
         <SynchronousCommand wcm:action="add">
-          <Order>3</Order>
+          <Order>4</Order>
           <CommandLine>shutdown /s /t 30</CommandLine>
           <Description>Shutdown after Stage 1 setup</Description>
         </SynchronousCommand>
@@ -291,7 +427,7 @@ phase_4_build_iso() {
     # Build new ISO
     if command -v genisoimage > /dev/null 2>&1; then
         genisoimage -iso-level 4 -J -l -D -N -joliet-long -relaxed-filenames \
-            -V "Windows10_Custom" -b "boot/etfsboot.com" -no-emul-boot -boot-load-size 8 -boot-info-table \
+            -V "Windows11_Custom" -b "boot/etfsboot.com" -no-emul-boot -boot-load-size 8 -boot-info-table \
             -eltorito-alt-boot -e "efi/microsoft/boot/efisys.bin" -no-emul-boot \
             -o "$custom_iso" "$build_dir"
     else
@@ -321,17 +457,18 @@ phase_5_create_vm() {
     # Create disk
     qemu-img create -f qcow2 "$disk_path" "${VM_SIZE_GB}G"
 
-    # Create VM using virt-install (headless)
+    # Create VM using virt-install (headless, with TPM 2.0 emulation)
     virt-install \
         --name "$VM_NAME" \
         --memory "$VM_RAM_MB" \
         --vcpus "$VM_VCPUS" \
         --disk "path=${disk_path},format=qcow2" \
         --cdrom "$custom_iso" \
-        --os-variant win10 \
+        --os-variant win11 \
         --graphics none \
         --network network=default \
         --boot cdrom,hd \
+        --tpm model=tpm-tis,backend.type=emulator,backend.version=2.0 \
         --noautoconsole \
         --wait 0 || die "virt-install failed"
 
