@@ -498,7 +498,7 @@ phase_a_dependencies() {
 
     # Add VM packages if needed
     if [[ "$INSTALL_METHOD" == "vm" ]]; then
-        apt_packages+=(qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients virtinst genisoimage cpio)
+        apt_packages+=(qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients virtinst genisoimage cpio libguestfs-tools ntfs-3g)
     fi
 
     run_apt_install "${apt_packages[@]}"
