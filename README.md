@@ -18,7 +18,7 @@ This project provides an automated installer that supports **three installation 
 - Sets up desktop launchers, file associations, and MIME types
 
 **Method 2: Extract from Windows VM (SLOW — ~60-90 minutes)**
-  - Downloads the official Windows 11 Evaluation ISO from Microsoft
+  - Downloads the official Windows 11 Consumer ISO from Microsoft
   - Creates a QEMU/KVM virtual machine (6 GB RAM, 2 vCPUs, 25 GB disk)
   - Installs Windows 11 unattended (no user interaction)
 - Downloads and runs the official Office Deployment Tool inside the VM
@@ -40,7 +40,7 @@ This project provides an automated installer that supports **three installation 
 - Active **Microsoft 365 subscription** (Personal, Family, or Business)
 - `sudo` privileges (for installing system packages, fonts, and icons)
 - For **Method 1**: Internet connection + a trusted source URL (you paste at runtime)
-- For **Method 2**: 12GB+ RAM, 45GB free disk, KVM CPU support, internet connection, active Microsoft account
+- For **Method 2**: 12GB+ RAM, 45GB free disk, KVM CPU support, internet connection
 - For **Method 3**: A pre-extracted Microsoft Office tree
 
 ## Quick Start

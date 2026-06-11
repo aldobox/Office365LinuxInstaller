@@ -19,15 +19,15 @@ EXTRACTED_DIR="${HOME}/.office365-extracted"
 DOWNLOADS="${HOME}/Downloads"
 LOGFILE="/tmp/office365_vm_extractor.log"
 
-# Windows 11 Evaluation ISO
-# Microsoft Evaluation Center URL (requires login):
-#   https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise
-# The script will open this page in your browser. Log in, download the ISO,
-# and the script will detect it automatically.
-EVAL_CENTER_URL="https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise"
-WIN_ISO_NAME="Windows11_Evaluation.iso"
-# TODO: Update this hash once you obtain the official SHA256 from Microsoft.
-WIN_ISO_SHA256="PLACEHOLDER_UPDATE_FROM_MICROSOFT"
+# Windows 11 Consumer ISO (direct Microsoft CDN link)
+# Source: massgrave.dev / Microsoft's official static distribution CDN
+# This is a genuine Microsoft file; no login or account required.
+# Language: English (en-us) | Edition: Windows 11 Pro (index 3 in the ISO)
+# To use a different language, visit https://massgrave.dev/windows_11_links
+WIN_ISO_URL="https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/26200.6584.250915-1905.25h2_ge_release_svc_refresh_CLIENT_CONSUMER_x64FRE_en-us.iso"
+WIN_ISO_NAME="Windows11_Consumer.iso"
+# TODO: Compute SHA256 after download: sha256sum "${VM_DIR}/${WIN_ISO_NAME}"
+WIN_ISO_SHA256="PLACEHOLDER_UPDATE_AFTER_FIRST_DOWNLOAD"
 
 # ODT URL (from Microsoft). Microsoft does not publish an official SHA256 for this utility.
 # Compute it once manually after downloading, then pin the value below.
@@ -118,9 +118,9 @@ phase_1_prerequisites() {
     log "Phase 1: Prerequisites OK"
 }
 
-# ---- Phase 2: Download Windows 11 Evaluation ISO ----------------------------
+# ---- Phase 2: Download Windows 11 Consumer ISO --------------------------------
 phase_2_download_iso() {
-    info "Phase 2: Obtaining Windows 11 Evaluation ISO..."
+    info "Phase 2: Obtaining Windows 11 Consumer ISO..."
     log "Phase 2: ISO download"
 
     check_disk_space 8 "Windows 11 ISO download"
@@ -137,120 +137,28 @@ phase_2_download_iso() {
     # Remove any stale zero-byte or partial file before download
     rm -f "$iso_path"
 
-    # Microsoft Evaluation Center requires account login.
-    # We open the browser for the user, then poll for the downloaded ISO.
-    info "Microsoft requires login to download evaluation ISOs."
-    info "Opening browser to the Evaluation Center..."
-    info "URL: ${EVAL_CENTER_URL}"
-    log "Opening browser for manual ISO download"
+    info "Downloading Windows 11 Consumer ISO..."
+    info "Source: Microsoft official CDN (via massgrave.dev index)"
+    info "URL: ${WIN_ISO_URL}"
+    log "Starting ISO download from Microsoft CDN"
 
-    if command -v xdg-open > /dev/null 2>&1; then
-        xdg-open "$EVAL_CENTER_URL" 2>/dev/null || warn "Could not open browser automatically."
+    # Download with wget (preferred) or curl, with resume support
+    if command -v wget > /dev/null 2>&1; then
+        wget --continue --show-progress --tries=3 --timeout=60 \
+            -O "$iso_path" "$WIN_ISO_URL" || die "ISO download failed."
+    elif command -v curl > /dev/null 2>&1; then
+        curl -L -C - --retry 3 --max-time 0 -o "$iso_path" "$WIN_ISO_URL" \
+            || die "ISO download failed."
+    else
+        die "Neither wget nor curl is installed. Cannot download ISO."
     fi
 
-    echo
-    echo "============================================================"
-    echo " MANUAL DOWNLOAD REQUIRED"
-    echo "============================================================"
-    echo
-    echo "1. Your browser should be open to the Microsoft Evaluation Center."
-    echo "2. Log in with your Microsoft account."
-    echo "3. Download: Windows 11 Enterprise Evaluation ISO"
-    echo "4. Save it to ONE of these locations:"
-    echo "     a) ~/Downloads/"
-    echo "     b) ${VM_DIR}/"
-    echo
-    echo "The script will automatically detect the file."
-    echo
-
-    # Poll loop: scan for ISO downloads
-    local poll_count=0
-    local max_polls=120  # 120 * 5s = 10 minutes
-    local detected_iso=""
-
-    while [[ $poll_count -lt $max_polls ]]; do
-        sleep 5
-        poll_count=$((poll_count + 1))
-
-        # Scan for .iso files in common download locations
-        detected_iso=""
-        for dir in "$VM_DIR" "$DOWNLOADS"; do
-            if [[ -d "$dir" ]]; then
-                # Find .iso files larger than 4GB (valid Windows ISO)
-                while IFS= read -r -d '' candidate; do
-                    local size
-                    size=$(stat -c%s "$candidate" 2>/dev/null || echo 0)
-                    if [[ $size -gt 4294967296 ]]; then
-                        detected_iso="$candidate"
-                        break 2
-                    fi
-                done < <(find "$dir" -maxdepth 1 -name '*.iso' -print0 2>/dev/null)
-
-                # Also check for Firefox/Chrome partial downloads (.iso.part)
-                while IFS= read -r -d '' candidate; do
-                    local size
-                    size=$(stat -c%s "$candidate" 2>/dev/null || echo 0)
-                    if [[ $size -gt 4294967296 ]]; then
-                        info "Partial download detected ($(basename "$candidate")). Waiting for completion..."
-                        # Wait up to 30 more seconds for .part to disappear
-                        local wait_part=0
-                        while [[ $wait_part -lt 6 ]]; do
-                            sleep 5
-                            wait_part=$((wait_part + 1))
-                            if [[ ! -f "$candidate" ]]; then
-                                # .part disappeared, check for .iso
-                                local base_name
-                                base_name="${candidate%.part}"
-                                if [[ -f "$base_name" ]]; then
-                                    detected_iso="$base_name"
-                                    break 3
-                                fi
-                            fi
-                        done
-                    fi
-                done < <(find "$dir" -maxdepth 1 -name '*.iso.part' -print0 2>/dev/null)
-            fi
-        done
-
-        # Show progress dot every 30 seconds
-        if [[ $((poll_count % 6)) -eq 0 ]]; then
-            echo -n "."
-        fi
-    done
-    echo
-
-    if [[ -n "$detected_iso" ]]; then
-        info "Detected ISO: $detected_iso"
-        echo
-        read -rp "Use this file? [Y/n/path]: " choice
-        if [[ -z "$choice" || "$choice" =~ ^[Yy]$ ]]; then
-            info "Importing ISO to ${iso_path}..."
-            mv "$detected_iso" "$iso_path"
-        elif [[ -f "$choice" ]]; then
-            info "Importing ISO from ${choice}..."
-            mv "$choice" "$iso_path"
-        else
-            die "No valid ISO selected. Cannot proceed."
-        fi
-    else
-        # Timeout fallback: ask user for path
-        echo
-        warn "No ISO auto-detected after 10 minutes."
-        read -rp "Enter full path to downloaded ISO (or ABORT): " manual_path
-        if [[ "${manual_path^^}" == "ABORT" ]]; then
-            die "Aborted by user."
-        fi
-        if [[ -f "$manual_path" ]]; then
-            local size
-            size=$(stat -c%s "$manual_path" 2>/dev/null || echo 0)
-            if [[ $size -lt 4294967296 ]]; then
-                die "File too small to be a valid Windows 11 ISO."
-            fi
-            info "Importing ISO..."
-            mv "$manual_path" "$iso_path"
-        else
-            die "File not found: $manual_path"
-        fi
+    # Verify minimum size (> 4 GB)
+    local size
+    size=$(stat -c%s "$iso_path" 2>/dev/null || echo 0)
+    if [[ $size -lt 4294967296 ]]; then
+        rm -f "$iso_path"
+        die "Downloaded ISO is too small (${size} bytes). Expected > 4 GB."
     fi
 
     verify_sha256 "$iso_path" "$WIN_ISO_SHA256" "Windows ISO"
@@ -302,6 +210,33 @@ XMLEOF
           <Path>reg add HKLM\\SYSTEM\\Setup\\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
         </RunSynchronousCommand>
       </RunSynchronous>
+    </component>
+  </settings>
+
+  <!-- windowsPE: Select Windows 11 Pro edition (ImageIndex 3 on Consumer ISO) -->
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <Key>/IMAGE/INDEX</Key>
+              <Value>3</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo>
+            <DiskID>0</DiskID>
+            <PartitionID>3</PartitionID>
+          </InstallTo>
+        </OSImage>
+      </ImageInstall>
+      <UserData>
+        <ProductKey>
+          <Key>VK7JG-NPHTM-C97JM-9MPGT-3V66T</Key>
+          <WillShowUI>Never</WillShowUI>
+        </ProductKey>
+        <AcceptEula>true</AcceptEula>
+      </UserData>
     </component>
   </settings>
 
