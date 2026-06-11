@@ -151,16 +151,17 @@ phase_0_consent_and_method() {
     echo "┌─────────────────────────────────────────────────────────────────────────────┐"
     echo "│ METHOD 2: Extract from Windows VM (SLOW — ~60-90 minutes)                   │"
     echo "│ ─────────────────────────────────────────────────────────────────────────── │"
-    echo "│ • Downloads a Windows 10 Evaluation ISO (~5 GB) from Microsoft              │"
-    echo "│ • Creates a QEMU/KVM virtual machine (3 GB RAM, 2 vCPUs, 25 GB disk)        │"
-    echo "│ • Installs Windows 10 unattended (no user interaction)                        │"
+    echo "│ • Downloads a Windows 11 Evaluation ISO (~7 GB) from Microsoft              │"
+    echo "│ • Creates a QEMU/KVM virtual machine (6 GB RAM, 2 vCPUs, 25 GB disk)      │"
+    echo "│ • Installs Windows 11 unattended (no user interaction)                          │"
     echo "│ • Downloads and runs the official Office Deployment Tool inside the VM        │"
     echo "│ • Extracts Office binaries from the VM disk to your Linux filesystem          │"
     echo "│ • Copies extracted binaries into a Wine prefix                                │"
     echo "│ • DELETES the VM and all associated files after extraction                    │"
-    echo "│ • Temporary files: ~40 GB (VM + ISO, fully cleaned up after)                  │"
-    echo "│ • Internet required: Yes                                                      │"
-    echo "│ • System requirements: 8GB+ RAM, 40GB free disk, KVM CPU support            │"
+    echo "│ • Temporary files: ~45 GB (VM + ISO, fully cleaned up after)                  │"
+    echo "│ • Internet required: Yes                                                        │"
+    echo "│ • System requirements: 12GB+ RAM, 45GB free disk, KVM CPU support          │"
+    echo "│ • ⚠ Microsoft account required to download evaluation ISO                   │"
     echo "└─────────────────────────────────────────────────────────────────────────────┘"
     echo
     echo "┌─────────────────────────────────────────────────────────────────────────────┐"
@@ -196,7 +197,7 @@ phase_0_consent_and_method() {
     echo "  ⚠ No automatic feature updates — manual reinstallation required."
     echo "  ⚠ This installer does NOT include, distribute, or facilitate piracy."
     echo "    You must have a valid Microsoft 365 subscription."
-    echo "  ⚠ Windows 10 Evaluation ISO is provided by Microsoft under their terms."
+    echo "  ⚠ Windows 11 Evaluation ISO is provided by Microsoft under their terms."
     echo "    It is a 90-day trial and requires no license key."
     echo
     echo "═══════════════════════════════════════════════════════════════════════════════"
@@ -498,7 +499,7 @@ phase_a_dependencies() {
 
     # Add VM packages if needed
     if [[ "$INSTALL_METHOD" == "vm" ]]; then
-        apt_packages+=(qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients virtinst genisoimage cpio libguestfs-tools ntfs-3g)
+        apt_packages+=(qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients virtinst genisoimage cpio libguestfs-tools ntfs-3g swtpm-tools)
     fi
 
     run_apt_install "${apt_packages[@]}"
@@ -892,11 +893,12 @@ phase_c2_vm() {
         die "KVM virtualization not supported on this CPU. Cannot create VM."
     fi
 
-    # Check available RAM
+    # Check available RAM (7GB free minimum for Win11 VM method)
     local avail_ram_kb
     avail_ram_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-    if [[ "$avail_ram_kb" -lt 4194304 ]]; then  # 4GB
-        warn "Less than 4GB RAM available. VM may fail or be very slow."
+    if [[ "$avail_ram_kb" -lt 7340032 ]]; then  # 7GB
+        warn "Less than 7GB free RAM available (${avail_ram_kb} KB)."
+        warn "Method 2 requires at least 7GB free RAM for the Windows 11 VM."
         read -rp "Continue anyway? [y/N]: " ans
         [[ "$ans" =~ ^[Yy]$ ]] || die "Aborted."
     fi
