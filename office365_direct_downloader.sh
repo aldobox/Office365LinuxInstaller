@@ -135,10 +135,12 @@ phase_3_extract_odt() {
     mkdir -p "$odt_extract_dir"
 
     # ODT.exe is a self-extracting cabinet. Try 7z first (no Wine needed).
+    # 7z may emit warnings about reparse streams; we ignore exit code and verify
+    # the presence of setup.exe afterward.
     if command -v 7z > /dev/null 2>&1; then
         info "Extracting ODT with 7z..."
-        7z x "$odt_path" -o"$odt_extract_dir" -y || \
-            die "7z extraction failed."
+        7z x "$odt_path" -o"$odt_extract_dir" -y 2>&1 || \
+            warn "7z reported warnings (often benign for self-extracting cabinets)."
     else
         # Fallback: use Wine to run the self-extractor
         warn "7z not found. Falling back to Wine self-extraction."
@@ -341,11 +343,12 @@ phase_7_attempt_configure() {
         log "Phase 7: Configure FAILED (exit ${configure_exit})"
     fi
 
-    # Check if binaries were created despite exit code
-    if [[ -d "${WINEPREFIX}/drive_c/Program Files/Microsoft Office/root/Office16" ]]; then
-        info "Office binaries detected in Wine prefix!"
+    # Check if WINWORD.EXE was created — this is the definitive sign of success
+    # (The directory may exist from a prior WAM stub install, so we check the EXE)
+    if [[ -f "${WINEPREFIX}/drive_c/Program Files/Microsoft Office/root/Office16/WINWORD.EXE" ]]; then
+        info "Office binaries detected in Wine prefix! WINWORD.EXE present."
         info "You may be able to proceed with Phase D (Copy Binaries)."
-        log "Phase 7: Binaries found in prefix despite configure exit"
+        log "Phase 7: WINWORD.EXE found in prefix — genuine success"
         return 0
     fi
 
@@ -367,7 +370,7 @@ phase_7_attempt_configure() {
     info "Alternatively, use Method 2 (VM extractor) for fully automated install."
     info ""
 
-    log "Phase 7: Configure did not produce binaries"
+    log "Phase 7: Configure did not produce WINWORD.EXE"
     return 1
 }
 
