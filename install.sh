@@ -470,19 +470,19 @@ phase_a_dependencies() {
         system-config-printer printer-driver-cups-pdf
         msitools
         clang lld
-        libc6:i386 libgcc1:i386 libstdc++6:i386
+        libc6:i386 libgcc-s1:i386 libstdc++6:i386
         libfreetype6:i386 libx11-6:i386 libxext6:i386
         libxrender1:i386 libxrandr2:i386
         libxcursor1:i386 libxi6:i386 libxinerama1:i386 libxcomposite1:i386
-        libgl1-mesa-glx:i386 libglu1-mesa:i386
+        libgl1:i386 libglu1-mesa:i386
         libasound2:i386 libpulse0:i386
         libdbus-1-3:i386 libncurses6:i386
         libopenal1:i386 libv4l-0:i386
-        libgphoto2-6:i386 libldap-2.4-2:i386
+        libgphoto2-6:i386 libldap2:i386
         libgnutls30:i386 libhogweed6:i386 libnettle8:i386
         libtasn1-6:i386 libp11-kit0:i386
         libfontconfig1:i386 libpng16-16:i386
-        libxml2:i386 libxslt1.1:i386
+        libxml2-16:i386 libxslt1.1:i386
         libmpg123-0:i386 libgstreamer1.0-0:i386
         libgstreamer-plugins-base1.0-0:i386
         libudev1:i386 libusb-1.0-0:i386
@@ -498,7 +498,7 @@ phase_a_dependencies() {
 
     # Add VM packages if needed
     if [[ "$INSTALL_METHOD" == "vm" ]]; then
-        apt_packages+=(qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients virtinst genisoimage cpio)
+        apt_packages+=(qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients virtinst genisoimage cpio)
     fi
 
     run_apt_install "${apt_packages[@]}"
