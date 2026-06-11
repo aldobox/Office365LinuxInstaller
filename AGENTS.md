@@ -5,7 +5,7 @@
 **Name:** Office365LinuxInstaller
 **Type:** Bash-based deployment helper for Microsoft Office 365 on Linux via Wine
 **License:** MIT
-**Version:** 2.1.0
+**Version:** 2.1.1
 **Repository:** https://github.com/aldobox/Office365LinuxInstaller
 
 ## Build & Run

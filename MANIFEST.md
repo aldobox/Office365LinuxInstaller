@@ -104,6 +104,11 @@ These paths are managed by `install.sh` and `uninstall.sh` but are **not** part 
 |---------|------|-------------|
 | 1.0.000 | 2026-06-08 | Initial release — browser-prompt installer, Wine prefix setup, launchers, MIME |
 | 1.0.101 | 2026-06-09 | ODT-aware Phase D (`/download` + `/configure`), cache detection, cleanup prompt `[y/n]`, URL fix to `microsoft.com/.../download-office`, `cups-pdf` removal |
+| 2.0.0 | 2026-06-09 | Hybrid installer with three methods (prebuilt, VM extractor, user-provided), consent banner, isolated Wine 9.7, WAM stub DLL, MSAL browser fallback |
+| 2.0.3 | 2026-06-09 | Audit fixes: browser wrapper creation, chown order, URL validation, MIME typo fix, mount check, duplicate cleanup removal |
+| 2.0.5 | 2026-06-09 | TUI-safe installer with `install-wrapper.sh` and `.desktop` launcher integration |
+| 2.1.0 | 2026-06-09 | Remove Troplo dependency, add VM extractor snapshots, Wine source-build fallback, disk/SHA256 checks |
+| 2.1.1 | 2026-06-11 | Terminal persistence (EXIT trap), Wine build `cd` bug fix, VM reliability (`powercfg /h off`, network wait, 30s shutdown) |
 
 ---
 

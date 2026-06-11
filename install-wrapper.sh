@@ -9,20 +9,24 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
     # Try to find a terminal emulator
     for term in gnome-terminal konsole alacritty kitty xterm; do
         if command -v "$term" >/dev/null 2>&1; then
+            # Uniform command: run install.sh then prompt before close.
+            # install.sh now has an EXIT trap that pauses on both success
+            # and failure, but a second "read" here guarantees the window
+            # stays open even if the inner bash exits abruptly.
             case "$term" in
                 gnome-terminal)
                     exec gnome-terminal --wait --title="Office 365 Installer" \
-                        -- bash -c "cd '$SCRIPT_DIR' && ./install.sh; echo '--- Press Enter to close ---'; read"
+                        -- bash -c "cd '$SCRIPT_DIR' && ./install.sh; echo; read -rp '--- Press Enter to close ---'; :"
                     ;;
                 konsole)
-                    exec konsole --hold -e bash -c "cd '$SCRIPT_DIR' && ./install.sh; exec bash"
+                    exec konsole -e bash -c "cd '$SCRIPT_DIR' && ./install.sh; echo; read -rp '--- Press Enter to close ---'; :"
                     ;;
                 alacritty|kitty)
-                    exec "$term" --hold -e bash -c "cd '$SCRIPT_DIR' && ./install.sh; exec bash"
+                    exec "$term" -e bash -c "cd '$SCRIPT_DIR' && ./install.sh; echo; read -rp '--- Press Enter to close ---'; :"
                     ;;
                 xterm)
-                    exec xterm -hold -T "Office 365 Installer" \
-                        -e "bash -c 'cd \"$SCRIPT_DIR\" && ./install.sh; exec bash'"
+                    exec xterm -T "Office 365 Installer" \
+                        -e "bash -c 'cd \"$SCRIPT_DIR\" && ./install.sh; echo; read -rp \"--- Press Enter to close ---\"; :'"
                     ;;
             esac
             # exec replaces the current process, so we never reach here
