@@ -7,7 +7,7 @@ Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu / De
 
 ## What This Is
 
-This project provides an automated installer that supports **three installation methods**:
+This project provides an automated installer that supports **four installation methods**:
 
 **Method 1: Download from Your Trusted Source (FAST — ~5 minutes)**
 - You paste a URL at runtime pointing to a `.tar.zst` archive with pre-extracted Office binaries
@@ -32,6 +32,15 @@ This project provides an automated installer that supports **three installation 
 - No external downloads required
 - Best for: Enterprise users with volume-licensed binaries
 
+**Method 4: Direct C2R Download (BETA — ~10 minutes)**
+- Downloads the official Office C2R offline `.img` (~4.5 GB) from Microsoft CDN
+- Extracts the Office payload using 7z (no mounting required)
+- Downloads and extracts the Office Deployment Tool (ODT)
+- Attempts installation under Wine (BETA — may fail due to C2R engine limitations)
+- If Wine install fails, extracted files remain usable on a real Windows PC/VM
+- No Microsoft account required for download
+- Best for: Users without KVM who want official Microsoft source files
+
 **No cracked, pre-activated, or pirated binaries are included or referenced.**
 
 ## Requirements
@@ -42,6 +51,8 @@ This project provides an automated installer that supports **three installation 
 - For **Method 1**: Internet connection + a trusted source URL (you paste at runtime)
 - For **Method 2**: 12GB+ RAM, 45GB free disk, KVM CPU support, internet connection
 - For **Method 3**: A pre-extracted Microsoft Office tree
+- For **Method 4**: ~4 GB RAM, 15 GB free disk, internet connection
+  - ⚠ **Beta limitation**: Click-to-Run installer may not complete under Wine.
 
 ## Quick Start
 
@@ -62,6 +73,7 @@ This project provides an automated installer that supports **three installation 
    - **[1]** Download from your trusted source (paste a URL at runtime)
    - **[2]** Extract from Windows VM (fully automated, takes ~60-90 min)
    - **[3]** Use your own packages (point to your Office tree)
+   - **[4]** Direct C2R download (BETA — ~10 min, may not complete under Wine)
 
 5. The script will:
    - Install system dependencies (Wine 9.7, winetricks, fonts)
@@ -146,7 +158,7 @@ For more details, see [docs/troubleshooting.md](docs/troubleshooting.md).
 - OneNote and Teams are known to be non-functional in Wine
 - Excel may exhibit screen flickering
 - No automatic feature updates — manual reinstallation required
-- Isolated Wine 9.7 will not receive security updates
+- Method 4 (BETA): Click-to-Run installer requires Windows services (COM+, BITS) that Wine does not emulate. Installation may hang or fail. Extracted files can be used on a real Windows PC/VM.
 
 ## Project Structure
 

@@ -45,6 +45,14 @@ else
     warn "No VM artifacts found at ${HOME}/.office365-extractor-vm"
 fi
 
+# ---- Remove direct download cache --------------------------------------------
+if [ -d "${HOME}/.office365-img-cache" ]; then
+    info "Removing direct download cache: ${HOME}/.office365-img-cache"
+    rm -rf "${HOME}/.office365-img-cache"
+else
+    warn "No direct download cache found at ${HOME}/.office365-img-cache"
+fi
+
 # ---- Remove isolated Wine ----------------------------------------------------
 if [ -d "${HOME}/.wine-msoffice/wine" ]; then
     info "Removing isolated Wine: ${HOME}/.wine-msoffice/wine"

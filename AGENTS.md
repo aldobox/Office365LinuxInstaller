@@ -30,10 +30,11 @@ bash -n uninstall.sh
 
 ## Architecture
 
-- `install.sh` — Main orchestrator (3 methods: Prebuilt, VM Extractor, User-provided)
+- `install.sh` — Main orchestrator (4 methods: Prebuilt, VM Extractor, User-provided, Direct C2R Download)
 - `install-wrapper.sh` — Terminal emulator launcher for TUI environments
 - `uninstall.sh` — Safe removal (process kill → prefix delete → system cleanup)
 - `office365_vm_extractor.sh` — QEMU/KVM VM automation for Method 2 (Windows ISO + ODT + extraction)
+- `office365_direct_downloader.sh` — Direct download of Microsoft C2R .img for Method 4 (BETA, no VM)
 - `wrappers/` — 8 launcher scripts exporting `WINEPREFIX` and `exec`ing Office binaries
 - `desktops/` — 8 `.desktop` files for GNOME/KDE/XFCE menus
 - `icons/` — 8 brand-color SVG placeholders (256x256)

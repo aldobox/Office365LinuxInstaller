@@ -174,6 +174,20 @@ phase_0_consent_and_method() {
     echo "│ • Internet required: No                                                       │"
     echo "└─────────────────────────────────────────────────────────────────────────────┘"
     echo
+    echo "┌─────────────────────────────────────────────────────────────────────────────┐"
+    echo "│ METHOD 4: Direct C2R Download (BETA — ~10 minutes)                          │"
+    echo "│ ─────────────────────────────────────────────────────────────────────────── │"
+    echo "│ • Downloads the official Office C2R offline .img (~4.5 GB) from Microsoft  │"
+    echo "│ • Extracts the Office payload using 7z (no mounting required)                  │"
+    echo "│ • Downloads and extracts the Office Deployment Tool (ODT)                     │"
+    echo "│ • Attempts installation under Wine (BETA — may fail due to C2R engine)       │"
+    echo "│ • If Wine install fails, files remain for use on a real Windows PC/VM         │"
+    echo "│ • Temporary files: ~15 GB (fully cleaned up after)                            │"
+    echo "│ • Internet required: Yes                                                        │"
+    echo "│ • System requirements: ~4 GB RAM, 15 GB free disk                              │"
+    echo "│ • ⚠ BETA: Click-to-Run installer requires Windows. Wine cannot complete it.  │"
+    echo "└─────────────────────────────────────────────────────────────────────────────┘"
+    echo
     echo "═══════════════════════════════════════════════════════════════════════════════"
     echo "WHAT WILL BE INSTALLED ON YOUR SYSTEM"
     echo "═══════════════════════════════════════════════════════════════════════════════"
@@ -227,10 +241,14 @@ phase_0_consent_and_method() {
     echo "  [3] Use my own Office packages (CUSTOM — ~2 minutes)"
     echo "      Best for: Enterprise users with volume-licensed binaries"
     echo
-    echo "  [4] Abort installation"
+    echo "  [4] Direct C2R download (BETA — ~10 minutes)"
+    echo "      Best for: Users without KVM who want official Microsoft source files"
+    echo "      ⚠ May not complete under Wine — files usable on Windows"
+    echo
+    echo "  [5] Abort installation"
     echo
 
-    read -rp "Your choice [1/2/3/4]: " choice
+    read -rp "Your choice [1/2/3/4/5]: " choice
     log "User chose method: $choice"
 
     case "$choice" in
@@ -244,6 +262,9 @@ phase_0_consent_and_method() {
             INSTALL_METHOD="user"
             ;;
         4)
+            INSTALL_METHOD="direct"
+            ;;
+        5)
             info "Aborted."
             exit 0
             ;;
@@ -948,6 +969,31 @@ phase_c3_user() {
     log "Phase C3: User packages copied"
 }
 
+# Method 4: Direct C2R Download (BETA)
+phase_c4_direct() {
+    info "Phase C4: Direct C2R download (BETA)..."
+    log "Phase C4: Direct download starting"
+
+    local downloader_script="${SCRIPT_DIR}/office365_direct_downloader.sh"
+    if [[ ! -f "$downloader_script" ]]; then
+        die "Direct downloader script not found at ${downloader_script}"
+    fi
+
+    bash "$downloader_script"
+
+    # The downloader attempts to install into the Wine prefix.
+    # If it succeeds, binaries are already at the expected location.
+    # If it fails, the user must use Method 2 or Method 3 instead.
+    if [[ ! -d "${EXTRACTED_DIR}/Microsoft Office" ]]; then
+        warn "Direct download did not produce extracted binaries."
+        warn "The C2R payload is cached at: ${HOME}/.office365-img-cache/"
+        warn "You can install on a Windows PC/VM and use Method 3."
+        die "Method 4 did not complete. Use Method 2 for automated install."
+    fi
+
+    log "Phase C4: Direct download complete"
+}
+
 # ---- Phase D: Copy Binaries to Wine Prefix ---------------------------------
 phase_d_copy_binaries() {
     info "Phase D: Copying Office binaries to Wine prefix..."
@@ -1070,6 +1116,11 @@ phase_i_cleanup() {
             rm -f "${DOWNLOADS}/wine-9.7.zst"
         fi
 
+        # Remove direct download cache if direct method was used
+        if [[ "$INSTALL_METHOD" == "direct" ]]; then
+            rm -rf "${HOME}/.office365-img-cache"
+        fi
+
         # Remove extracted binaries (they're now in the prefix)
         rm -rf "$EXTRACTED_DIR"
 
@@ -1156,6 +1207,9 @@ main() {
             ;;
         user)
             phase_c3_user
+            ;;
+        direct)
+            phase_c4_direct
             ;;
     esac
 
