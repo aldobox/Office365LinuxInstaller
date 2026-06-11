@@ -235,3 +235,42 @@ git push origin --tags --force
 | D011 | Orphaned release recreation | Only viable way to fix broken release reference after rewrite | No — old release ID dead |
 
 ---
+
+---
+
+### 2026-06-11 — v2.1.1 Hotfix: Terminal Persistence, Wine Build Bug, VM Reliability
+**Author:** aldobox
+**Scope:** `install.sh`, `install-wrapper.sh`, `office365_vm_extractor.sh`
+**Trigger:** Gap analysis between `hotfixes/task.md` spec and actual HEAD revealed 1 critical bug + 3 missing items.
+
+#### Changes
+- [x] `install.sh` — Fixed missing `cd "${wine_src}"` before `./configure` in Wine source-build fallback. Added `cd "${SCRIPT_DIR}" || true` after successful build to restore working directory.
+- [x] `install.sh` — Replaced `ERR` trap with `EXIT` trap so terminal stays open on **both** success and failure. Captures exit code, prints error context on failure, then prompts `read -rp "Press Enter to exit..."` on TTY.
+- [x] `install-wrapper.sh` — Unified all terminal emulator launch paths (`gnome-terminal`, `konsole`, `alacritty`, `kitty`, `xterm`) to append `read -rp "--- Press Enter to close ---"` instead of relying on `--hold` / `exec bash`. Guarantees window stays open even if inner bash exits abruptly.
+- [x] `office365_vm_extractor.sh` — Added `powercfg /h off` as SynchronousCommand Order 1 in `autounattend.xml` to disable Windows Fast Startup, preventing hibernation dirty journal that breaks `guestmount`.
+- [x] `office365_vm_extractor.sh` — Added `Test-Connection` retry loop (up to 5 minutes) inside VM PowerShell script before ODT download, mitigating NAT-not-ready race condition.
+- [x] `office365_vm_extractor.sh` — Changed Stage 1 shutdown from `/t 10` to `/t 30` to ensure registry flush before snapshot.
+- [x] `office365_vm_extractor.sh` — Improved SHA256 placeholder comments: cites official Microsoft hash PDF URL for Windows ISO and notes that ODT has no official published hash.
+
+#### Issues Found / Fixed
+- **CRITICAL:** `install.sh:575` ran `./configure` from `$SCRIPT_DIR` instead of extracted Wine source directory. Source-build fallback would fail immediately with "no such file or directory".
+  - Fix: Insert `cd "${wine_src}" || die ...` before configure.
+- **MISSING:** `ERR` trap only caught `set -e` failures. `die()` calls `exit 1` directly, often bypassing `ERR` trap depending on bash version. Terminal closed instantly on many fatal errors.
+  - Fix: `trap '...' EXIT` fires unconditionally on script termination, regardless of how `exit` was reached.
+- **MISSING:** VM `autounattend.xml` had no network readiness wait, no Fast Startup disable, and only 10-second shutdown delay.
+  - Fix: Three new `SynchronousCommand` entries + increased shutdown delay.
+
+#### Service State
+- N/A — Pure Bash repository; no services.
+
+---
+
+#### Decision Registry
+| ID | Decision | Rationale | Reversible |
+|----|----------|-----------|------------|
+| D010 | Full git-filter-repo rewrite | Operator explicitly required it; private repo prevents force-push harm | No — old commit hashes are lost |
+| D011 | Orphaned release recreation | Only viable way to fix broken release reference after rewrite | No — old release ID dead |
+| D012 | One atomic commit for all fixes | Operator requested single commit; all changes are tightly coupled (terminal persistence + Wine build bug + VM reliability) | Yes — could be split into 3 commits if needed |
+| D013 | SHA256 placeholders deferred | Real hashes not yet obtained from official Microsoft sources; script gracefully degrades to warning + user prompt | Yes — update variables once hashes are known |
+
+---

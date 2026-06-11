@@ -4,7 +4,7 @@ set -euo pipefail
 # =============================================================================
 # Office365 VM Extractor
 # Creates a headless Windows 10 VM, runs ODT inside it, extracts Office binaries
-# Version: 2.1.0
+# Version: 2.1.1
 # =============================================================================
 
 # ---- Configuration ----------------------------------------------------------
@@ -20,15 +20,19 @@ DOWNLOADS="${HOME}/Downloads"
 LOGFILE="/tmp/office365_vm_extractor.log"
 
 # Windows 10 Evaluation ISO (official Microsoft, no key needed, 90-day trial)
-# SHA256: Verify at https://www.microsoft.com/en-us/evalcenter/evaluate-windows-10-enterprise
-# If URL fails, manually download and place at ${VM_DIR}/Windows10_Evaluation.iso
+# SHA256 source: https://download.microsoft.com/download/c/1/1/c11d2ca5-967c-45c0-bc7d-2d9ca3f1fe07/Windows10Enterprise22H2HashValues.pdf
+# Find the row for your language/architecture, then paste the SHA256 below.
+# If Microsoft re-releases the ISO with updated cumulative updates, the hash may change.
+# In that case the script warns you, shows the computed hash, and asks whether to proceed.
 WIN_ISO_URL="https://software-download.microsoft.com/download/pr/Win10_22H2_English_x64.iso"
 WIN_ISO_NAME="Windows10_Evaluation.iso"
-# NOTE: Update this hash from Microsoft before release. Placeholder below.
+# TODO: Update this hash from the official PDF before release.
 WIN_ISO_SHA256="PLACEHOLDER_UPDATE_FROM_MICROSOFT"
 
-# ODT URL and SHA256 (from Microsoft)
+# ODT URL (from Microsoft). Microsoft does not publish an official SHA256 for this utility.
+# Compute it once manually after downloading, then pin the value below.
 ODT_URL="https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_17830-20162.exe"
+# TODO: Compute locally with: sha256sum officedeploymenttool_17830-20162.exe
 ODT_SHA256="PLACEHOLDER_UPDATE_FROM_ODT_DOWNLOAD"
 
 # ---- Helpers ----------------------------------------------------------------
@@ -195,13 +199,27 @@ XMLEOF
         <SkipUserOOBE>true</SkipUserOOBE>
       </OOBE>
       <FirstLogonCommands>
-        <!-- Order 1: Create ODT install script and register for next boot -->
+        <!-- Order 1: Disable Fast Startup so shutdown is clean for guestmount -->
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
+          <CommandLine>powercfg /h off</CommandLine>
+          <Description>Disable hibernation / Fast Startup</Description>
+        </SynchronousCommand>
+        <!-- Order 2: Create ODT install script and register for RunOnce on next boot -->
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
           <CommandLine>powershell -ExecutionPolicy Bypass -Command "\$ProgressPreference = 'SilentlyContinue'; \$script = @'
 \$log = \"C:\\odt_install.log\"
 \"[START] ODT install script running\" | Out-File -Append -FilePath \$log
 try {
+    \"Waiting for network...\" | Out-File -Append -FilePath \$log
+    \$retries = 0
+    while (-not (Test-Connection -ComputerName \"download.microsoft.com\" -Count 1 -Quiet)) {
+        Start-Sleep -Seconds 5
+        \$retries++
+        if (\$retries -gt 60) { throw \"Network not available after 5 minutes\" }
+    }
+    \"[OK] Network ready after \$(\$retries * 5) seconds\" | Out-File -Append -FilePath \$log
     Invoke-WebRequest -Uri '${ODT_URL}' -OutFile 'C:\\Users\\${WIN_USER}\\Downloads\\ODT.exe' -UseBasicParsing
     \"[OK] ODT downloaded\" | Out-File -Append -FilePath \$log
     Start-Process -FilePath 'C:\\Users\\${WIN_USER}\\Downloads\\ODT.exe' -ArgumentList '/quiet','/extract:C:\\Users\\${WIN_USER}\\Downloads\\odt' -Wait
@@ -220,10 +238,10 @@ shutdown /s /t 0
 '@; Set-Content -Path 'C:\\odt_install.ps1' -Value \$script; New-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce' -Name 'O365Install' -Value \"powershell -ExecutionPolicy Bypass -File C:\\odt_install.ps1\" -PropertyType String -Force"</CommandLine>
           <Description>Create ODT install script and register for next boot</Description>
         </SynchronousCommand>
-        <!-- Order 2: Shutdown after first logon (Stage 1 complete) -->
+        <!-- Order 3: Shutdown after first logon (Stage 1 complete) -->
         <SynchronousCommand wcm:action="add">
-          <Order>2</Order>
-          <CommandLine>shutdown /s /t 10</CommandLine>
+          <Order>3</Order>
+          <CommandLine>shutdown /s /t 30</CommandLine>
           <Description>Shutdown after Stage 1 setup</Description>
         </SynchronousCommand>
       </FirstLogonCommands>
@@ -519,7 +537,7 @@ phase_10_report() {
 # ---- Main ------------------------------------------------------------------
 main() {
     > "$LOGFILE"
-    log "VM Extractor v2.1.0 started"
+    log "VM Extractor v2.1.1 started"
 
     phase_1_prerequisites
     phase_2_download_iso

@@ -1,14 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Keep terminal open on error so user can read the message
-# If launched from a TUI (no TTY), sleep instead of read to avoid blocking on pipe input
-trap 'echo; echo "[FATAL] Installation failed at line $LINENO. See error above."; echo "If you need help, run with: bash -x install.sh"; if [ -t 0 ]; then read -rp "Press Enter to exit..."; else echo "Check log: $LOGFILE"; sleep 10; fi; exit 1' ERR
+# Keep terminal open on both success and failure so the user can read messages.
+# If launched from a TUI (no TTY), sleep instead of read to avoid blocking on pipe input.
+trap '
+    exit_code=$?
+    if [ "${exit_code}" -ne 0 ]; then
+        echo
+        echo "[FATAL] Installation failed. Exit code: ${exit_code}."
+        echo "See error above. Log file: ${LOGFILE}"
+        echo "If you need help, run with: bash -x install.sh"
+    fi
+    if [ -t 0 ]; then
+        echo
+        read -rp "Press Enter to exit..."
+    else
+        echo "Check log: ${LOGFILE}"
+        sleep 10
+    fi
+' EXIT
 
 # =============================================================================
 # Office365LinuxInstaller
 # Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu/Debian
-# Version: 2.1.0
+# Version: 2.1.1
 # =============================================================================
 
 # ---- User Detection (for privilege dropping) ------------------------------
@@ -105,7 +120,7 @@ phase_0_consent_and_method() {
 
     echo "╔══════════════════════════════════════════════════════════════════════════════╗"
     echo "║                                                                              ║"
-    echo "║           Office365LinuxInstaller v2.1.0 — Installation Wizard                 ║"
+    echo "║           Office365LinuxInstaller v2.1.1 — Installation Wizard                 ║"
     echo "║                                                                              ║"
     echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo
@@ -570,8 +585,10 @@ phase_a1_download_isolated_wine() {
         info "Extracting source..."
         tar xf "${wine_tar}" -C "${build_dir}"
 
-        info "Configuring Wine 9.7 (32-bit prefix support, no wow64)..."
         local wine_src="${build_dir}/wine-9.7"
+        cd "${wine_src}" || die "Failed to enter Wine source directory: ${wine_src}"
+
+        info "Configuring Wine 9.7 (32-bit prefix support, no wow64)..."
         ./configure \
             --prefix="${ISOLATED_WINE_DIR}" \
             --without-wayland \
@@ -598,6 +615,7 @@ phase_a1_download_isolated_wine() {
         fi
 
         info "Wine 9.7 built and installed successfully."
+        cd "${SCRIPT_DIR}" || true
     fi
 
     # Extraction (shared path for both download and build)
@@ -1109,7 +1127,7 @@ phase_j_report() {
 # ---- Main Orchestrator ------------------------------------------------------
 main() {
     > "$LOGFILE"
-    log "Installer v2.1.0 started"
+    log "Installer v2.1.1 started"
 
     # Phase 0: Consent banner + method selection
     phase_0_consent_and_method
