@@ -125,6 +125,7 @@ vm_destroy() {
         [[ -n "$swtpm_pid" ]] && kill -KILL "$swtpm_pid" 2>/dev/null || true
     fi
     rm -f "${VM_DIR}/qemu.pid" "${VM_DIR}/swtpm.pid"
+    rm -f "${VM_DIR}/tpm/.lock" "${VM_DIR}/tpm/swtpm-sock"
 }
 
 vm_start() {
@@ -134,18 +135,31 @@ vm_start() {
         accel="tcg"
     fi
     local tpm_dir="${VM_DIR}/tpm"
+    rm -f "${tpm_dir}/swtpm-sock" "${tpm_dir}/.lock"
     swtpm socket --tpmstate dir="$tpm_dir" --ctrl type=unixio,path="${tpm_dir}/swtpm-sock" --tpm2 --log level=1 &
     local swtpm_pid=$!
     sleep 1
     if ! kill -0 "$swtpm_pid" 2>/dev/null; then
         die "swtpm failed to start for Stage 2."
     fi
+    # Ensure UEFI vars file exists for this VM
+    local ovmf_code="/usr/share/OVMF/OVMF_CODE_4M.fd"
+    local ovmf_vars="${VM_DIR}/OVMF_VARS.fd"
+    if [[ ! -f "$ovmf_vars" ]]; then
+        cp /usr/share/OVMF/OVMF_VARS_4M.fd "$ovmf_vars" || warn "Could not copy OVMF vars; NVRAM may not persist"
+    fi
+
+    local original_iso="${VM_DIR}/${WIN_ISO_NAME}"
+    local floppy_img="${VM_DIR}/answer_floppy.img"
+
     nohup qemu-system-x86_64 \
-        -machine type=q35,accel="$accel" \
+        -machine type=pc,accel="$accel" \
         -cpu host \
         -smp "${VM_VCPUS}" \
         -m "${VM_RAM_MB}" \
         -drive "file=${disk_path},format=qcow2,if=virtio" \
+        -cdrom "$original_iso" \
+        -drive "file=${floppy_img},format=raw,if=floppy" \
         -boot order=c \
         -netdev user,id=net0 \
         -device virtio-net-pci,netdev=net0 \
@@ -187,7 +201,7 @@ phase_1_prerequisites() {
     fi
 
     # Check required commands
-    for cmd in qemu-system-x86_64 qemu-img swtpm; do
+    for cmd in qemu-system-x86_64 qemu-img swtpm mtools; do
         if ! command -v "$cmd" > /dev/null 2>&1; then
             die "Required command not found: $cmd. Run install.sh with Method 2 first."
         fi
@@ -379,7 +393,7 @@ try {
     \"[OK] ODT downloaded\" | Out-File -Append -FilePath \$log
     Start-Process -FilePath 'C:\\Users\\${WIN_USER}\\Downloads\\ODT.exe' -ArgumentList '/quiet','/extract:C:\\Users\\${WIN_USER}\\Downloads\\odt' -Wait
     \"[OK] ODT extracted\" | Out-File -Append -FilePath \$log
-    Copy-Item -Path 'D:\\o365_config.xml' -Destination 'C:\\Users\\${WIN_USER}\\Downloads\\odt\\config.xml' -Force
+    Copy-Item -Path 'A:\\o365_config.xml' -Destination 'C:\\Users\\${WIN_USER}\\Downloads\\odt\\config.xml' -Force
     \"[OK] Config copied\" | Out-File -Append -FilePath \$log
     Start-Process -FilePath 'C:\\Users\\${WIN_USER}\\Downloads\\odt\\setup.exe' -ArgumentList '/configure','C:\\Users\\${WIN_USER}\\Downloads\\odt\\config.xml' -Wait
     \"[OK] ODT configure completed\" | Out-File -Append -FilePath \$log
@@ -408,51 +422,39 @@ XMLEOF
     log "Phase 3: Answer files created"
 }
 
-# ---- Phase 4: Build custom ISO with answer file -----------------------------
+# ---- Phase 4: Create floppy image with answer files -------------------------
+# Windows Setup searches for autounattend.xml on removable drives (A:).
+# We create a small floppy image with autounattend.xml + o365_config.xml
+# and mount it alongside the original unmodified Windows ISO.
+# This avoids rebuilding the ISO (which corrupts UEFI boot on Win11).
 phase_4_build_iso() {
-    info "Phase 4: Building custom ISO with answer file and ODT config..."
-    log "Phase 4: Build ISO"
+    info "Phase 4: Creating answer-file floppy image..."
+    log "Phase 4: Build floppy"
 
-    local original_iso="${VM_DIR}/${WIN_ISO_NAME}"
-    local custom_iso="${VM_DIR}/windows_custom.iso"
+    local floppy_img="${VM_DIR}/answer_floppy.img"
 
-    if [[ -f "$custom_iso" ]]; then
-        info "Custom ISO already present."
+    if [[ -f "$floppy_img" ]]; then
+        info "Floppy image already present."
         return 0
     fi
 
-    check_disk_space 8 "Custom ISO build"
+    check_disk_space 1 "Answer-file floppy image"
 
-    # Extract original ISO using 7z (no root/sudo needed)
-    local build_dir="${VM_DIR}/iso_build"
-    rm -rf "$build_dir"
-    mkdir -p "$build_dir"
+    # Create 1.44 MB FAT12 floppy image using mtools (no root needed)
+    dd if=/dev/zero of="$floppy_img" bs=1M count=1 status=none || die "Failed to create floppy image"
 
-    if command -v 7z > /dev/null 2>&1; then
-        info "Extracting Windows ISO with 7z (no mount required)..."
-        7z x "$original_iso" -o"$build_dir" -y || die "7z extraction of Windows ISO failed."
-    else
-        die "7z not found. Install p7zip-full to extract ISO without root."
-    fi
+    local mtoolsrc="${VM_DIR}/mtoolsrc"
+    cat > "$mtoolsrc" <<EOF
+drive a: file="${floppy_img}"
+EOF
+    export MTOOLSRC="$mtoolsrc"
 
-    # Inject answer file and ODT config
-    cp "${VM_DIR}/autounattend/autounattend.xml" "${build_dir}/autounattend.xml"
-    cp "${VM_DIR}/autounattend/o365_config.xml" "${build_dir}/o365_config.xml"
+    mformat a: || die "mformat failed — mtools not installed?"
+    mcopy "${VM_DIR}/autounattend/autounattend.xml" a:/autounattend.xml || die "Failed to copy autounattend.xml to floppy"
+    mcopy "${VM_DIR}/autounattend/o365_config.xml" a:/o365_config.xml || die "Failed to copy o365_config.xml to floppy"
 
-    # Build new ISO (allow files >4GB like install.wim)
-    if command -v genisoimage > /dev/null 2>&1; then
-        genisoimage -iso-level 4 -J -l -D -N -joliet-long -relaxed-filenames \
-            -allow-limited-size \
-            -V "Windows11_Custom" -b "boot/etfsboot.com" -no-emul-boot -boot-load-size 8 -boot-info-table \
-            -eltorito-alt-boot -e "efi/microsoft/boot/efisys.bin" -no-emul-boot \
-            -o "$custom_iso" "$build_dir"
-    else
-        die "genisoimage not found. Cannot build custom ISO."
-    fi
-
-    rm -rf "$build_dir"
-
-    log "Phase 4: Custom ISO built"
+    info "Floppy image created with answer files."
+    log "Phase 4: Floppy image built"
 }
 
 # ---- Phase 5: Create VM -----------------------------------------------------
@@ -484,7 +486,7 @@ phase_5_create_vm() {
     # Start TPM emulator (socket-based, no libvirt required)
     local tpm_dir="${VM_DIR}/tpm"
     mkdir -p "$tpm_dir"
-    rm -f "${tpm_dir}/swtpm-sock"
+    rm -f "${tpm_dir}/swtpm-sock" "${tpm_dir}/.lock"
     swtpm socket --tpmstate dir="$tpm_dir" --ctrl type=unixio,path="${tpm_dir}/swtpm-sock" --tpm2 --log level=1 &
     local swtpm_pid=$!
     sleep 1
@@ -493,13 +495,19 @@ phase_5_create_vm() {
     fi
 
     # Start VM directly with QEMU (no libvirt)
+    # Using SeaBIOS (legacy BIOS) — UEFI boot fails with Microsoft Consumer ISOs.
+    # Windows 11 installs fine on BIOS with LabConfig bypasses (in autounattend.xml).
+    local original_iso="${VM_DIR}/${WIN_ISO_NAME}"
+    local floppy_img="${VM_DIR}/answer_floppy.img"
+
     nohup qemu-system-x86_64 \
-        -machine type=q35,accel="$accel" \
+        -machine type=pc,accel="$accel" \
         -cpu host \
         -smp "${VM_VCPUS}" \
         -m "${VM_RAM_MB}" \
         -drive "file=${disk_path},format=qcow2,if=virtio" \
-        -cdrom "$custom_iso" \
+        -cdrom "$original_iso" \
+        -drive "file=${floppy_img},format=raw,if=floppy" \
         -boot order=d \
         -netdev user,id=net0 \
         -device virtio-net-pci,netdev=net0 \

@@ -518,9 +518,9 @@ phase_a_dependencies() {
         apt_packages+=(wine64 wine32 winetricks)
     fi
 
-    # Add VM packages if needed (direct QEMU, no libvirt)
+    # Add VM packages if needed (direct QEMU, no libvirt, SeaBIOS)
     if [[ "$INSTALL_METHOD" == "vm" ]]; then
-        apt_packages+=(qemu-system-x86 qemu-utils genisoimage cpio libguestfs-tools ntfs-3g swtpm-tools)
+        apt_packages+=(qemu-system-x86 qemu-utils mtools genisoimage cpio libguestfs-tools ntfs-3g swtpm-tools)
     fi
 
     run_apt_install "${apt_packages[@]}"
