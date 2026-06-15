@@ -19,12 +19,13 @@ This project provides an automated installer that supports **four installation m
 
 **Method 2: Extract from Windows VM (SLOW — ~60-90 minutes)**
   - Downloads the official Windows 11 Consumer ISO from Microsoft
-  - Creates a QEMU/KVM virtual machine (6 GB RAM, 2 vCPUs, 25 GB disk)
+  - Creates a headless QEMU VM via direct QEMU execution (SeaBIOS, no libvirt required)
+  - **Limitation:** Some QEMU configurations may fail to boot large Microsoft ISOs. See Troubleshooting.
   - Installs Windows 11 unattended (no user interaction)
 - Downloads and runs the official Office Deployment Tool inside the VM
 - Extracts Office binaries from the VM disk to your Linux filesystem
 - Deletes the VM and all associated files after extraction
-- Best for: Privacy-conscious users who want full control
+- Best for: Privacy-conscious users who want full control (and have working KVM)
 
 **Method 3: Use your own packages (CUSTOM — ~2 minutes)**
 - You provide a pre-extracted Microsoft Office tree
@@ -143,6 +144,11 @@ To completely remove Office 365 and all associated files:
 
 ## Troubleshooting
 
+- **"VM boot timeout" (Method 2)**: Some QEMU configurations cannot boot large Microsoft Consumer ISOs (7+ GB UDF/ISO9660 hybrids). If the VM hangs at "Booting from DVD/CD..." for more than 10 minutes:
+  - Ensure KVM is active (not TCG emulation) — TCG is too slow for Windows setup
+  - Try a different ISO source (e.g., Windows 11 Evaluation ISO from Microsoft Evaluation Center)
+  - The script will automatically time out after 90 minutes and clean up
+  - As a workaround, use Method 1 (prebuilt binaries) or Method 3 (your own packages)
 - **"Invalid URL" (Method 1)**: The URL must start with `http://` or `https://` and point to a `.tar.zst` archive. The archive must contain a `Microsoft Office/` directory with `root/Office16/WINWORD.EXE` inside. You are solely responsible for the legality of the source.
 - **"KVM virtualization not supported"**: Method 2 requires CPU virtualization extensions (vmx/svm). Check BIOS settings for Intel VT-x / AMD-V.
 - **"WINWORD.EXE not found"**: Check `~/.Microsoft_Office_365/drive_c/Program Files/Microsoft Office/root/Office16/`. If using Method 3, verify your Office tree has the correct structure.
@@ -158,6 +164,7 @@ For more details, see [docs/troubleshooting.md](docs/troubleshooting.md).
 - OneNote and Teams are known to be non-functional in Wine
 - Excel may exhibit screen flickering
 - No automatic feature updates — manual reinstallation required
+- Method 2 (VM Extractor): Some QEMU setups cannot boot the Microsoft Consumer ISO. If boot fails, use Method 1 or 3 instead.
 - Method 4 (BETA): Click-to-Run installer requires Windows services (COM+, BITS) that Wine does not emulate. Installation may hang or fail. Extracted files can be used on a real Windows PC/VM.
 
 ## Project Structure
