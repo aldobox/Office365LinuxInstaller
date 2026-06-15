@@ -274,3 +274,80 @@ git push origin --tags --force
 | D013 | SHA256 placeholders deferred | Real hashes not yet obtained from official Microsoft sources; script gracefully degrades to warning + user prompt | Yes — update variables once hashes are known |
 
 ---
+
+### 2026-06-15 — Method 4 Addition + VM Extractor Stabilization
+**Author:** aldobox
+**Scope:** `install.sh`, `uninstall.sh`, `office365_vm_extractor.sh`, `office365_direct_downloader.sh`, `README.md`, `AGENTS.md`
+**Trigger:** Operator requested 4 methods, stabilize VM extractor for Win11, and add direct C2R download (Method 4).
+
+#### Changes
+- [x] `office365_direct_downloader.sh` — NEW FILE. Downloads ODT + `O365ProPlusRetail.img`, extracts with 7z, attempts Wine `setup.exe /configure` (BETA).
+- [x] `install.sh` — Added Method 4 to menu `[1/2/3/4/5]`, consent banner, package list, cleanup for `~/.office365-img-cache`, dispatcher.
+- [x] `uninstall.sh` — Added `~/.office365-img-cache` removal.
+- [x] `README.md` — Method 4 documentation + Method 2 limitation note.
+- [x] `office365_vm_extractor.sh` — Fixed false positive: checks `WINWORD.EXE` file presence instead of directory existence.
+- [x] `office365_vm_extractor.sh` — Replaced `sudo mount -o loop` with `7z x` (no root needed).
+- [x] `office365_vm_extractor.sh` — Added `-allow-limited-size` to `genisoimage` for `install.wim` >4GB.
+- [x] `office365_vm_extractor.sh` — REPLACED LIBVIRT with direct QEMU execution (no `virt-install`/`virsh`).
+- [x] `office365_vm_extractor.sh` — Added VM lifecycle helpers: `vm_is_running()`, `vm_wait_shutdown()`, `vm_destroy()`, `vm_start()`.
+- [x] `office365_vm_extractor.sh` — Added KVM detection with graceful TCG fallback.
+- [x] `office365_vm_extractor.sh` — Added swtpm lock/socket cleanup before swtpm start.
+- [x] `office365_vm_extractor.sh` — Switched from OVMF (UEFI) to SeaBIOS (legacy BIOS) for better ISO compatibility.
+- [x] `office365_vm_extractor.sh` — Replaced custom ISO rebuild with **floppy image injection**: `autounattend.xml` + `o365_config.xml` placed on A: drive (avoids ISO rebuild corruption).
+- [x] `install.sh` — Removed `libvirt-daemon-system`, `libvirt-clients`, `virtinst` from VM packages; added `mtools`, `ovmf` (later removed).
+- [x] `install.sh` — Cleanup uses PID-based kill instead of `virsh destroy/undefine`.
+
+#### Commits
+| SHA | Message |
+|-----|---------|
+| `2aeba8f` | Replace broken eval-center with direct Microsoft CDN URL (Option A) |
+| `fc9bcd8` | Add Method 4 — Direct C2R Download (BETA) |
+| `351fafe` | Check WINWORD.EXE instead of directory to avoid false positive |
+| `74643eb` | Replace sudo mount with 7z extraction (no root needed) |
+| `557b491` | Add `-allow-limited-size` for install.wim >4GB |
+| `79ec679` | Replace libvirt with direct QEMU execution |
+| `b4c1972` | Floppy image injection + SeaBIOS + swtpm lock cleanup |
+| `838d95a` | Document Method 2 QEMU ISO boot limitation |
+
+#### Issues Found / Fixed
+- **ISSUE:** `virt-install` fails with `Permission denied` on `/var/run/libvirt/libvirt-sock`.
+  - Root cause: User not in `libvirt` group; managed terminals cannot interact with system services.
+  - Fix: Replaced all `virt-install`/`virsh` usage with direct `qemu-system-x86_64` + `swtpm socket`.
+- **ISSUE:** `genisoimage` aborts with "File 'sources/install.wim' is too large" (>4GB).
+  - Root cause: ISO 9660 level 1 file size limit is 4GB; Windows 11 `install.wim` is ~5.2 GB.
+  - Fix: Added `-allow-limited-size` flag to `genisoimage`.
+- **ISSUE:** `sudo mount -o loop` requires password in managed terminals.
+  - Root cause: Loop device creation requires root in many configurations.
+  - Fix: Replaced `mount` + `cp -r` with `7z x` (no root, works with UDF+ISO9660).
+- **ISSUE:** Method 4 falsely reports success because `~/.office365-extracted/` directory existed from prior WAM stub install.
+  - Root cause: Verification checked directory existence, not file contents.
+  - Fix: Check for `WINWORD.EXE` file presence instead of directory existence.
+- **ISSUE:** swtpm lock file collision between consecutive runs.
+  - Root cause: Stale `swtpm` processes leave `~/.office365-extractor-vm/tpm/.lock` behind.
+  - Fix: Added `rm -f "${tpm_dir}/.lock" "${tpm_dir}/swtpm-sock"` before starting swtpm in both Phase 5 and `vm_start()`.
+
+#### Outstanding Blocker
+- **Method 2 VM ISO boot:** Microsoft Windows 11 Consumer ISO (~7.3 GB, UDF+ISO9660 hybrid) fails to boot in QEMU CD-ROM emulation.
+  - UEFI (OVMF): CD-ROM timeout after 5+ minutes
+  - SeaBIOS: "Booting from DVD/CD..." then stalls (disk never grows past 324K)
+  - Without floppy: Same behavior
+  - Custom rebuilt ISO: Same behavior
+  - **Likely cause:** QEMU CD-ROM emulation incompatibility with large UDF+ISO9660 hybrid Microsoft ISOs. Not a script bug.
+  - **Workarounds:** Method 1 (prebuilt), Method 3 (user packages), Method 4 (direct C2R download)
+  - **Future fix ideas:** Use pre-built VHDX from Microsoft, use smaller Win10 Eval ISO, use Windows PE ISO
+
+#### Service State
+- No persistent services. Pure Bash repository.
+- `managed-5`, `managed-7`, `managed-8`, `managed-9` terminals used and killed during testing.
+- Last test: `managed-9` — SeaBIOS boot stalled at "Booting from DVD/CD..."
+
+#### Decision Registry
+| ID | Decision | Rationale | Reversible |
+|----|----------|-----------|------------|
+| D014 | Method 4 (Direct C2R Download) | Provides an official-Microsoft-source path that doesn't require VM boot | Yes — can be removed if never useful |
+| D015 | Direct QEMU instead of libvirt | Eliminates permission/service barriers in managed-terminal environments | Partial — could re-add libvirt as optional |
+| D016 | Floppy image (A:) for answer files | Avoids ISO rebuild corruption; Windows Setup natively searches A: for autounattend.xml | No — this is the correct approach |
+| D017 | SeaBIOS instead of OVMF | OVMF cannot boot Microsoft Consumer ISOs in QEMU; SeaBIOS is more compatible | Yes — could switch back if QEMU UEFI improves |
+| D018 | Document Method 2 limitation honestly | Better UX than leaving users hanging; recommends alternatives | Yes — can remove once fixed |
+
+---
