@@ -355,9 +355,10 @@ phase_4_build_iso() {
     cp "${VM_DIR}/autounattend/autounattend.xml" "${build_dir}/autounattend.xml"
     cp "${VM_DIR}/autounattend/o365_config.xml" "${build_dir}/o365_config.xml"
 
-    # Build new ISO
+    # Build new ISO (allow files >4GB like install.wim)
     if command -v genisoimage > /dev/null 2>&1; then
         genisoimage -iso-level 4 -J -l -D -N -joliet-long -relaxed-filenames \
+            -allow-limited-size \
             -V "Windows11_Custom" -b "boot/etfsboot.com" -no-emul-boot -boot-load-size 8 -boot-info-table \
             -eltorito-alt-boot -e "efi/microsoft/boot/efisys.bin" -no-emul-boot \
             -o "$custom_iso" "$build_dir"
