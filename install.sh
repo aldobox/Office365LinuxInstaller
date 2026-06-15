@@ -518,18 +518,18 @@ phase_a_dependencies() {
         apt_packages+=(wine64 wine32 winetricks)
     fi
 
-    # Add VM packages if needed
+    # Add VM packages if needed (direct QEMU, no libvirt)
     if [[ "$INSTALL_METHOD" == "vm" ]]; then
-        apt_packages+=(qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients virtinst genisoimage cpio libguestfs-tools ntfs-3g swtpm-tools)
+        apt_packages+=(qemu-system-x86 qemu-utils genisoimage cpio libguestfs-tools ntfs-3g swtpm-tools)
     fi
 
     run_apt_install "${apt_packages[@]}"
 
-    # Add user to groups for VM method
+    # Add user to kvm group for hardware acceleration (optional, improves speed)
     if [[ "$INSTALL_METHOD" == "vm" ]]; then
-        sudo usermod -aG libvirt "$CURRENT_USER" 2>/dev/null || true
         sudo usermod -aG kvm "$CURRENT_USER" 2>/dev/null || true
-        sudo systemctl enable --now libvirtd 2>/dev/null || true
+        warn "User added to kvm group. Log out and back in for hardware acceleration."
+        warn "Without kvm, VM will run in TCG mode (slower but works)."
     fi
 
     # Start background progress monitor for file-I/O tracking
@@ -1110,8 +1110,17 @@ phase_i_cleanup() {
 
         # Remove VM files if VM method was used
         if [[ "$INSTALL_METHOD" == "vm" ]]; then
-            virsh destroy "$VM_NAME" 2>/dev/null || true
-            virsh undefine "$VM_NAME" --remove-all-storage 2>/dev/null || true
+            # Kill any running QEMU/swtpm processes for our VM
+            if [[ -f "${VM_DIR}/qemu.pid" ]]; then
+                local qemu_pid
+                qemu_pid=$(cat "${VM_DIR}/qemu.pid" 2>/dev/null)
+                [[ -n "$qemu_pid" ]] && kill -TERM "$qemu_pid" 2>/dev/null || true
+            fi
+            if [[ -f "${VM_DIR}/swtpm.pid" ]]; then
+                local swtpm_pid
+                swtpm_pid=$(cat "${VM_DIR}/swtpm.pid" 2>/dev/null)
+                [[ -n "$swtpm_pid" ]] && kill -TERM "$swtpm_pid" 2>/dev/null || true
+            fi
             rm -rf "$VM_DIR"
             rm -f "${DOWNLOADS}/wine-9.7.zst"
         fi

@@ -84,6 +84,84 @@ cleanup_guestmount() {
 }
 trap 'cleanup_guestmount' EXIT ERR INT TERM
 
+# VM lifecycle helpers (no libvirt)
+vm_is_running() {
+    local pid_file="${VM_DIR}/qemu.pid"
+    if [[ ! -f "$pid_file" ]]; then
+        return 1
+    fi
+    local pid
+    pid=$(cat "$pid_file" 2>/dev/null)
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+vm_wait_shutdown() {
+    local max_wait="${1:-180}"
+    local wait_count=0
+    while vm_is_running; do
+        sleep 30
+        wait_count=$((wait_count + 1))
+        if [[ $wait_count -gt $max_wait ]]; then
+            return 1
+        fi
+        echo -n "."
+    done
+    echo
+    return 0
+}
+
+vm_destroy() {
+    local qemu_pid swtpm_pid
+    if [[ -f "${VM_DIR}/qemu.pid" ]]; then
+        qemu_pid=$(cat "${VM_DIR}/qemu.pid" 2>/dev/null)
+        [[ -n "$qemu_pid" ]] && kill -TERM "$qemu_pid" 2>/dev/null || true
+        sleep 2
+        [[ -n "$qemu_pid" ]] && kill -KILL "$qemu_pid" 2>/dev/null || true
+    fi
+    if [[ -f "${VM_DIR}/swtpm.pid" ]]; then
+        swtpm_pid=$(cat "${VM_DIR}/swtpm.pid" 2>/dev/null)
+        [[ -n "$swtpm_pid" ]] && kill -TERM "$swtpm_pid" 2>/dev/null || true
+        sleep 1
+        [[ -n "$swtpm_pid" ]] && kill -KILL "$swtpm_pid" 2>/dev/null || true
+    fi
+    rm -f "${VM_DIR}/qemu.pid" "${VM_DIR}/swtpm.pid"
+}
+
+vm_start() {
+    local disk_path="${VM_DIR}/${VM_NAME}.qcow2"
+    local accel="kvm"
+    if [[ ! -r /dev/kvm ]]; then
+        accel="tcg"
+    fi
+    local tpm_dir="${VM_DIR}/tpm"
+    swtpm socket --tpmstate dir="$tpm_dir" --ctrl type=unixio,path="${tpm_dir}/swtpm-sock" --tpm2 --log level=1 &
+    local swtpm_pid=$!
+    sleep 1
+    if ! kill -0 "$swtpm_pid" 2>/dev/null; then
+        die "swtpm failed to start for Stage 2."
+    fi
+    nohup qemu-system-x86_64 \
+        -machine type=q35,accel="$accel" \
+        -cpu host \
+        -smp "${VM_VCPUS}" \
+        -m "${VM_RAM_MB}" \
+        -drive "file=${disk_path},format=qcow2,if=virtio" \
+        -boot order=c \
+        -netdev user,id=net0 \
+        -device virtio-net-pci,netdev=net0 \
+        -chardev socket,id=chrtpm,path="${tpm_dir}/swtpm-sock" \
+        -tpmdev emulator,id=tpm0,chardev=chrtpm \
+        -device tpm-tis,tpmdev=tpm0 \
+        -display none \
+        -serial file:"${VM_DIR}/serial.log" \
+        >> "${VM_DIR}/qemu.log" 2>&1 &
+    local qemu_pid=$!
+    disown "$qemu_pid"
+    echo "$qemu_pid" > "${VM_DIR}/qemu.pid"
+    echo "$swtpm_pid" > "${VM_DIR}/swtpm.pid"
+    info "VM restarted for Stage 2 (PID: $qemu_pid)"
+}
+
 # ---- Phase 1: Prerequisites -------------------------------------------------
 phase_1_prerequisites() {
     info "Phase 1: Checking prerequisites..."
@@ -109,9 +187,15 @@ phase_1_prerequisites() {
     fi
 
     # Check required commands
-    for cmd in qemu-system-x86_64 qemu-img virt-install virsh guestmount qemu-nbd ntfsfix swtpm; do
+    for cmd in qemu-system-x86_64 qemu-img swtpm; do
         if ! command -v "$cmd" > /dev/null 2>&1; then
             die "Required command not found: $cmd. Run install.sh with Method 2 first."
+        fi
+    done
+    # Optional commands for Phase 8 extraction (guestmount preferred, qemu-nbd fallback)
+    for cmd in guestmount qemu-nbd ntfsfix; do
+        if ! command -v "$cmd" > /dev/null 2>&1; then
+            warn "Optional command not found: $cmd. Phase 8 extraction may require sudo."
         fi
     done
 
@@ -389,22 +473,52 @@ phase_5_create_vm() {
     # Create disk
     qemu-img create -f qcow2 "$disk_path" "${VM_SIZE_GB}G"
 
-    # Create VM using virt-install (headless, with TPM 2.0 emulation)
-    virt-install \
-        --name "$VM_NAME" \
-        --memory "$VM_RAM_MB" \
-        --vcpus "$VM_VCPUS" \
-        --disk "path=${disk_path},format=qcow2" \
-        --cdrom "$custom_iso" \
-        --os-variant win11 \
-        --graphics none \
-        --network network=default \
-        --boot cdrom,hd \
-        --tpm model=tpm-tis,backend.type=emulator,backend.version=2.0 \
-        --noautoconsole \
-        --wait 0 || die "virt-install failed"
+    # Check KVM access — prefer KVM, fallback to TCG (slower but works everywhere)
+    local accel="kvm"
+    if [[ ! -r /dev/kvm ]]; then
+        warn "KVM not accessible (user not in kvm group). Falling back to TCG emulation."
+        warn "This will be significantly slower. Add yourself to the kvm group and re-login for speedup."
+        accel="tcg"
+    fi
 
-    log "Phase 5: VM created"
+    # Start TPM emulator (socket-based, no libvirt required)
+    local tpm_dir="${VM_DIR}/tpm"
+    mkdir -p "$tpm_dir"
+    rm -f "${tpm_dir}/swtpm-sock"
+    swtpm socket --tpmstate dir="$tpm_dir" --ctrl type=unixio,path="${tpm_dir}/swtpm-sock" --tpm2 --log level=1 &
+    local swtpm_pid=$!
+    sleep 1
+    if ! kill -0 "$swtpm_pid" 2>/dev/null; then
+        die "swtpm failed to start. TPM emulation required for Windows 11."
+    fi
+
+    # Start VM directly with QEMU (no libvirt)
+    nohup qemu-system-x86_64 \
+        -machine type=q35,accel="$accel" \
+        -cpu host \
+        -smp "${VM_VCPUS}" \
+        -m "${VM_RAM_MB}" \
+        -drive "file=${disk_path},format=qcow2,if=virtio" \
+        -cdrom "$custom_iso" \
+        -boot order=d \
+        -netdev user,id=net0 \
+        -device virtio-net-pci,netdev=net0 \
+        -chardev socket,id=chrtpm,path="${tpm_dir}/swtpm-sock" \
+        -tpmdev emulator,id=tpm0,chardev=chrtpm \
+        -device tpm-tis,tpmdev=tpm0 \
+        -display none \
+        -serial file:"${VM_DIR}/serial.log" \
+        > "${VM_DIR}/qemu.log" 2>&1 &
+    local qemu_pid=$!
+    disown "$qemu_pid"
+
+    # Save PID for lifecycle management
+    echo "$qemu_pid" > "${VM_DIR}/qemu.pid"
+    echo "$swtpm_pid" > "${VM_DIR}/swtpm.pid"
+
+    info "VM started (PID: $qemu_pid, TPM PID: $swtpm_pid)"
+    info "Serial log: ${VM_DIR}/serial.log"
+    log "Phase 5: VM created (QEMU PID: $qemu_pid, accel: $accel)"
 }
 
 # ---- Phase 6: Wait for Stage 1 (Windows Install) ---------------------------
@@ -413,20 +527,10 @@ phase_6_wait_stage1() {
     info "This will take 20-30 minutes. Do not interrupt."
     log "Phase 6: Stage 1 wait"
 
-    local wait_count=0
-    local max_wait=180  # 180 * 30s = 90 minutes max
-
-    while virsh domstate "$VM_NAME" 2>/dev/null | grep -q "running"; do
-        sleep 30
-        wait_count=$((wait_count + 1))
-        if [[ $wait_count -gt $max_wait ]]; then
-            virsh destroy "$VM_NAME" 2>/dev/null || true
-            die "VM Stage 1 took too long. Windows install may have failed."
-        fi
-        echo -n "."
-    done
-    echo
-
+    if ! vm_wait_shutdown 180; then
+        vm_destroy
+        die "VM Stage 1 took too long (90 min). Windows install may have failed."
+    fi
     info "Stage 1 complete. Windows installed."
     log "Phase 6: Stage 1 complete"
 }
@@ -452,12 +556,12 @@ phase_7_start_stage2() {
     info "Phase 7: Starting Stage 2 (ODT installation)..."
     log "Phase 7: Stage 2 start"
 
-    virsh start "$VM_NAME" || die "Failed to start VM for Stage 2"
+    vm_start || die "Failed to start VM for Stage 2"
 
     local wait_count=0
     local max_wait=120  # 120 * 30s = 60 minutes max for ODT
 
-    while virsh domstate "$VM_NAME" 2>/dev/null | grep -q "running"; do
+    while vm_is_running; do
         sleep 30
         wait_count=$((wait_count + 1))
         if [[ $wait_count -gt $max_wait ]]; then
@@ -471,15 +575,14 @@ phase_7_start_stage2() {
             case "$choice" in
                 1)
                     info "Reverting to windows_base snapshot and restarting..."
-                    virsh destroy "$VM_NAME" 2>/dev/null || true
-                    local disk_path="${VM_DIR}/${VM_NAME}.qcow2"
+                    vm_destroy
                     qemu-img snapshot -a windows_base "$disk_path"
-                    virsh start "$VM_NAME"
+                    vm_start || die "Failed to restart VM for Stage 2"
                     wait_count=0
                     continue
                     ;;
                 2)
-                    info "VM is still running. Connect with: virsh console $VM_NAME"
+                    info "VM is still running. Serial log: ${VM_DIR}/serial.log"
                     read -rp "Press Enter when done debugging..."
                     continue
                     ;;
@@ -580,8 +683,7 @@ phase_9_cleanup_vm() {
     info "Phase 9: Cleaning up VM..."
     log "Phase 9: Cleanup"
 
-    virsh destroy "$VM_NAME" 2>/dev/null || true
-    virsh undefine "$VM_NAME" --remove-all-storage 2>/dev/null || true
+    vm_destroy
     rm -rf "$VM_DIR"
 
     log "Phase 9: Cleanup complete"
