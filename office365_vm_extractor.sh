@@ -339,25 +339,21 @@ phase_4_build_iso() {
 
     check_disk_space 8 "Custom ISO build"
 
-    # Mount original ISO
-    local mount_point=/mnt/win_iso
-    sudo mkdir -p "$mount_point"
-    if ! sudo mount -o loop,ro "$original_iso" "$mount_point"; then
-        die "Failed to mount Windows ISO at $mount_point"
-    fi
-
-    # Copy contents
+    # Extract original ISO using 7z (no root/sudo needed)
     local build_dir="${VM_DIR}/iso_build"
     rm -rf "$build_dir"
     mkdir -p "$build_dir"
-    cp -r "${mount_point}/"* "$build_dir/" 2>/dev/null || true
+
+    if command -v 7z > /dev/null 2>&1; then
+        info "Extracting Windows ISO with 7z (no mount required)..."
+        7z x "$original_iso" -o"$build_dir" -y || die "7z extraction of Windows ISO failed."
+    else
+        die "7z not found. Install p7zip-full to extract ISO without root."
+    fi
 
     # Inject answer file and ODT config
     cp "${VM_DIR}/autounattend/autounattend.xml" "${build_dir}/autounattend.xml"
     cp "${VM_DIR}/autounattend/o365_config.xml" "${build_dir}/o365_config.xml"
-
-    # Unmount
-    sudo umount "$mount_point" || true
 
     # Build new ISO
     if command -v genisoimage > /dev/null 2>&1; then
