@@ -12,7 +12,7 @@ set -euo pipefail
 # files remain available for installation on a real Windows system.
 #
 # Source: https://massgrave.dev/office_c2r_links
-# Version: 2.1.1
+# Version: 2.1.2
 # =============================================================================
 
 # ---- Configuration ----------------------------------------------------------

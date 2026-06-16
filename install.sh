@@ -23,7 +23,7 @@ trap '
 # =============================================================================
 # Office365LinuxInstaller
 # Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu/Debian
-# Version: 2.1.1
+# Version: 2.1.2
 # =============================================================================
 
 # ---- User Detection (for privilege dropping) ------------------------------
@@ -120,7 +120,7 @@ phase_0_consent_and_method() {
 
     echo "╔══════════════════════════════════════════════════════════════════════════════╗"
     echo "║                                                                              ║"
-    echo "║           Office365LinuxInstaller v2.1.1 — Installation Wizard                 ║"
+    echo "║           Office365LinuxInstaller v2.1.2 — Installation Wizard                 ║"
     echo "║                                                                              ║"
     echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo
@@ -1189,7 +1189,7 @@ phase_j_report() {
 # ---- Main Orchestrator ------------------------------------------------------
 main() {
     > "$LOGFILE"
-    log "Installer v2.1.1 started"
+    log "Installer v2.1.2 started"
 
     # Phase 0: Consent banner + method selection
     phase_0_consent_and_method

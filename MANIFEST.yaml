@@ -1,12 +1,12 @@
 ---
 # Office365LinuxInstaller — Project Manifest
-# Version: 1.0.101
-# Last Updated: 2026-06-09
+# Version: 2.1.2
+# Last Updated: 2026-06-16
 # Format: YAML 1.2
 
 project:
   name: Office365LinuxInstaller
-  version: "1.0.101"
+  version: "2.1.2"
   description: "Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu/Debian"
   license: MIT
   repository: "https://github.com/aldobox/Office365LinuxInstaller"
@@ -179,6 +179,28 @@ version_history:
       - "Cleanup prompt [y/n] at end of installation"
       - "URL fix to microsoft.com/en-us/microsoft-365/download-office"
       - "Removed obsolete cups-pdf package"
+
+  - version: "2.1.0"
+    date: "2026-06-09"
+    changes:
+      - "Remove Troplo dependency"
+      - "Add VM extractor snapshots"
+      - "Wine source-build fallback"
+      - "Disk and SHA256 checks"
+
+  - version: "2.1.1"
+    date: "2026-06-11"
+    changes:
+      - "Terminal persistence (EXIT trap)"
+      - "Wine build cd bug fix"
+      - "VM reliability (powercfg /h off, network wait, 30s shutdown)"
+
+  - version: "2.1.2"
+    date: "2026-06-16"
+    changes:
+      - "Version consistency bump across all files"
+      - "install.sh, vm_extractor, uninstall.sh, direct_downloader"
+      - "README badge, MANIFEST.yaml, AGENTS.md synchronized"
 
 maintenance_rules:
   - "Update MANIFEST.yaml when files/folders are added, removed, or renamed"

@@ -109,6 +109,7 @@ These paths are managed by `install.sh` and `uninstall.sh` but are **not** part 
 | 2.0.5 | 2026-06-09 | TUI-safe installer with `install-wrapper.sh` and `.desktop` launcher integration |
 | 2.1.0 | 2026-06-09 | Remove Troplo dependency, add VM extractor snapshots, Wine source-build fallback, disk/SHA256 checks |
 | 2.1.1 | 2026-06-11 | Terminal persistence (EXIT trap), Wine build `cd` bug fix, VM reliability (`powercfg /h off`, network wait, 30s shutdown) |
+| 2.1.2 | 2026-06-16 | Version consistency bump across all files: install.sh, vm_extractor, uninstall.sh, direct_downloader, README badge, MANIFEST.yaml, AGENTS.md |
 
 ---
 

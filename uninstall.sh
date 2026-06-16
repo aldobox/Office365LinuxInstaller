@@ -4,7 +4,7 @@ set -uo pipefail
 # =============================================================================
 # Office365LinuxInstaller Uninstaller
 # Safely removes all artifacts created by install.sh
-# Version: 2.1.1
+# Version: 2.1.2
 # =============================================================================
 
 info()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
