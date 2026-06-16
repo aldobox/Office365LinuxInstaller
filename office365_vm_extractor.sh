@@ -142,22 +142,38 @@ vm_start() {
     if ! kill -0 "$swtpm_pid" 2>/dev/null; then
         die "swtpm failed to start for Stage 2."
     fi
-    # Ensure UEFI vars file exists for this VM
-    local ovmf_code="/usr/share/OVMF/OVMF_CODE_4M.fd"
-    local ovmf_vars="${VM_DIR}/OVMF_VARS.fd"
-    if [[ ! -f "$ovmf_vars" ]]; then
-        cp /usr/share/OVMF/OVMF_VARS_4M.fd "$ovmf_vars" || warn "Could not copy OVMF vars; NVRAM may not persist"
-    fi
-
     local original_iso="${VM_DIR}/${WIN_ISO_NAME}"
     local floppy_img="${VM_DIR}/answer_floppy.img"
+
+    # Fallback Strategy C (q35 + OVMF): If SeaBIOS stalls with the Microsoft
+    # Consumer ISO, uncomment the block below and comment out the active qemu
+    # command. Requires: apt-get install ovmf
+    # local ovmf_bios="/usr/share/ovmf/OVMF.fd"
+    # nohup qemu-system-x86_64 \
+    #     -machine type=q35,accel="$accel" \
+    #     -bios "$ovmf_bios" \
+    #     -cpu host \
+    #     -smp "${VM_VCPUS}" \
+    #     -m "${VM_RAM_MB}" \
+    #     -drive "file=${disk_path},format=qcow2,if=ide" \
+    #     -cdrom "$original_iso" \
+    #     -drive "file=${floppy_img},format=raw,if=floppy" \
+    #     -boot order=c \
+    #     -netdev user,id=net0 \
+    #     -device virtio-net-pci,netdev=net0 \
+    #     -chardev socket,id=chrtpm,path="${tpm_dir}/swtpm-sock" \
+    #     -tpmdev emulator,id=tpm0,chardev=chrtpm \
+    #     -device tpm-tis,tpmdev=tpm0 \
+    #     -display none \
+    #     -serial file:"${VM_DIR}/serial.log" \
+    #     >> "${VM_DIR}/qemu.log" 2>&1 &
 
     nohup qemu-system-x86_64 \
         -machine type=pc,accel="$accel" \
         -cpu host \
         -smp "${VM_VCPUS}" \
         -m "${VM_RAM_MB}" \
-        -drive "file=${disk_path},format=qcow2,if=virtio" \
+        -drive "file=${disk_path},format=qcow2,if=ide" \
         -cdrom "$original_iso" \
         -drive "file=${floppy_img},format=raw,if=floppy" \
         -boot order=c \
@@ -185,10 +201,10 @@ phase_1_prerequisites() {
 
     # Check KVM
     if ! grep -c -E '(vmx|svm)' /proc/cpuinfo > /dev/null 2>&1; then
-        die "CPU does not support KVM virtualization (no vmx/svm flags)."
+        warn "CPU does not support KVM virtualization (no vmx/svm flags). Falling back to TCG."
     fi
     if [[ ! -e /dev/kvm ]]; then
-        die "/dev/kvm not found. Is kvm kernel module loaded?"
+        warn "/dev/kvm not found. Is kvm kernel module loaded? Falling back to TCG."
     fi
 
     # Check available RAM (7GB free minimum for Win11 VM)
@@ -497,6 +513,29 @@ phase_5_create_vm() {
     # Start VM directly with QEMU (no libvirt)
     # Using SeaBIOS (legacy BIOS) — UEFI boot fails with Microsoft Consumer ISOs.
     # Windows 11 installs fine on BIOS with LabConfig bypasses (in autounattend.xml).
+    # Fallback Strategy C (q35 + OVMF): If SeaBIOS stalls with the Microsoft
+    # Consumer ISO, uncomment the block below and comment out the active qemu
+    # command. Requires: apt-get install ovmf
+    # local ovmf_bios="/usr/share/ovmf/OVMF.fd"
+    # nohup qemu-system-x86_64 \
+    #     -machine type=q35,accel="$accel" \
+    #     -bios "$ovmf_bios" \
+    #     -cpu host \
+    #     -smp "${VM_VCPUS}" \
+    #     -m "${VM_RAM_MB}" \
+    #     -drive "file=${disk_path},format=qcow2,if=ide" \
+    #     -cdrom "$original_iso" \
+    #     -drive "file=${floppy_img},format=raw,if=floppy" \
+    #     -boot order=d \
+    #     -netdev user,id=net0 \
+    #     -device virtio-net-pci,netdev=net0 \
+    #     -chardev socket,id=chrtpm,path="${tpm_dir}/swtpm-sock" \
+    #     -tpmdev emulator,id=tpm0,chardev=chrtpm \
+    #     -device tpm-tis,tpmdev=tpm0 \
+    #     -display none \
+    #     -serial file:"${VM_DIR}/serial.log" \
+    #     > "${VM_DIR}/qemu.log" 2>&1 &
+
     local original_iso="${VM_DIR}/${WIN_ISO_NAME}"
     local floppy_img="${VM_DIR}/answer_floppy.img"
 
@@ -505,7 +544,7 @@ phase_5_create_vm() {
         -cpu host \
         -smp "${VM_VCPUS}" \
         -m "${VM_RAM_MB}" \
-        -drive "file=${disk_path},format=qcow2,if=virtio" \
+        -drive "file=${disk_path},format=qcow2,if=ide" \
         -cdrom "$original_iso" \
         -drive "file=${floppy_img},format=raw,if=floppy" \
         -boot order=d \
@@ -561,6 +600,7 @@ phase_6_5_snapshot() {
 
 # ---- Phase 7: Start Stage 2 (ODT Install) ----------------------------------
 phase_7_start_stage2() {
+    local disk_path="${VM_DIR}/${VM_NAME}.qcow2"
     info "Phase 7: Starting Stage 2 (ODT installation)..."
     log "Phase 7: Stage 2 start"
 

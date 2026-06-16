@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
 
 # =============================================================================
 # Office365LinuxInstaller Uninstaller
@@ -13,66 +13,83 @@ error() { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 
 # ---- Kill Wine / Office processes -------------------------------------------
 info "Stopping any running Wine and Office processes..."
-pkill -9 -f wineserver          2>/dev/null || true
-pkill -9 -f wine                2>/dev/null || true
-pkill -9 -f EXCEL.EXE           2>/dev/null || true
-pkill -9 -f WINWORD.EXE         2>/dev/null || true
-pkill -9 -f POWERPNT.EXE        2>/dev/null || true
-pkill -9 -f OUTLOOK.EXE         2>/dev/null || true
-pkill -9 -f MSACCESS.EXE        2>/dev/null || true
-pkill -9 -f MSPUB.EXE           2>/dev/null || true
-pkill -9 -f ONENOTE.EXE         2>/dev/null || true
-pkill -9 -f Teams.exe           2>/dev/null || true
-pkill -9 -f OFFICEC2RCLIENT.EXE 2>/dev/null || true
-pkill -9 -f OfficeClickToRun.exe 2>/dev/null || true
+pkill -x wineserver          2>/dev/null || true
+pkill -x wine                2>/dev/null || true
+pkill -x EXCEL.EXE           2>/dev/null || true
+pkill -x WINWORD.EXE         2>/dev/null || true
+pkill -x POWERPNT.EXE        2>/dev/null || true
+pkill -x OUTLOOK.EXE         2>/dev/null || true
+pkill -x MSACCESS.EXE        2>/dev/null || true
+pkill -x MSPUB.EXE           2>/dev/null || true
+pkill -x ONENOTE.EXE         2>/dev/null || true
+pkill -x Teams.exe           2>/dev/null || true
+pkill -x OFFICEC2RCLIENT.EXE 2>/dev/null || true
+pkill -x OfficeClickToRun.exe 2>/dev/null || true
 
 # Wait briefly for processes to die
 sleep 2
 
+_safe_rm() {
+    local target="$1"
+    case "$target" in
+        ""|"/"|"."|"..")
+            warn "Refusing to remove potentially dangerous path: $target"
+            return 1
+            ;;
+    esac
+    rm -rf "$target"
+}
+
 # ---- Remove extracted Office binaries ---------------------------------------
-if [ -d "${HOME}/.office365-extracted" ]; then
-    info "Removing extracted Office binaries: ${HOME}/.office365-extracted"
-    rm -rf "${HOME}/.office365-extracted"
+OFFICE_EXTRACTED="${HOME}/.office365-extracted"
+if [ -d "$OFFICE_EXTRACTED" ]; then
+    info "Removing extracted Office binaries: $OFFICE_EXTRACTED"
+    _safe_rm "$OFFICE_EXTRACTED"
 else
-    warn "No extracted binaries found at ${HOME}/.office365-extracted"
+    warn "No extracted binaries found at $OFFICE_EXTRACTED"
 fi
 
 # ---- Remove VM extractor artifacts -------------------------------------------
-if [ -d "${HOME}/.office365-extractor-vm" ]; then
-    info "Removing VM extractor artifacts: ${HOME}/.office365-extractor-vm"
-    rm -rf "${HOME}/.office365-extractor-vm"
+VM_DIR="${HOME}/.office365-extractor-vm"
+if [ -d "$VM_DIR" ]; then
+    info "Removing VM extractor artifacts: $VM_DIR"
+    _safe_rm "$VM_DIR"
 else
-    warn "No VM artifacts found at ${HOME}/.office365-extractor-vm"
+    warn "No VM artifacts found at $VM_DIR"
 fi
 
 # ---- Remove direct download cache --------------------------------------------
-if [ -d "${HOME}/.office365-img-cache" ]; then
-    info "Removing direct download cache: ${HOME}/.office365-img-cache"
-    rm -rf "${HOME}/.office365-img-cache"
+IMG_CACHE="${HOME}/.office365-img-cache"
+if [ -d "$IMG_CACHE" ]; then
+    info "Removing direct download cache: $IMG_CACHE"
+    _safe_rm "$IMG_CACHE"
 else
-    warn "No direct download cache found at ${HOME}/.office365-img-cache"
+    warn "No direct download cache found at $IMG_CACHE"
 fi
 
 # ---- Remove isolated Wine ----------------------------------------------------
-if [ -d "${HOME}/.wine-msoffice/wine" ]; then
-    info "Removing isolated Wine: ${HOME}/.wine-msoffice/wine"
-    rm -rf "${HOME}/.wine-msoffice/wine"
+ISOLATED_WINE="${HOME}/.wine-msoffice/wine"
+if [ -d "$ISOLATED_WINE" ]; then
+    info "Removing isolated Wine: $ISOLATED_WINE"
+    _safe_rm "$ISOLATED_WINE"
 else
-    warn "No isolated Wine found at ${HOME}/.wine-msoffice/wine"
+    warn "No isolated Wine found at $ISOLATED_WINE"
 fi
 
 # ---- Clean up any remaining Wine-msoffice directory ------------------------
-if [ -d "${HOME}/.wine-msoffice" ]; then
-    info "Removing Wine-msoffice directory: ${HOME}/.wine-msoffice"
-    rm -rf "${HOME}/.wine-msoffice"
+WINE_MSOFFICE="${HOME}/.wine-msoffice"
+if [ -d "$WINE_MSOFFICE" ]; then
+    info "Removing Wine-msoffice directory: $WINE_MSOFFICE"
+    _safe_rm "$WINE_MSOFFICE"
 fi
 
 # ---- Remove Wine prefix ------------------------------------------------------
-if [ -d "${HOME}/.Microsoft_Office_365" ]; then
-    info "Removing Wine prefix: ${HOME}/.Microsoft_Office_365"
-    rm -rf "${HOME}/.Microsoft_Office_365"
+WINE_PREFIX="${HOME}/.Microsoft_Office_365"
+if [ -d "$WINE_PREFIX" ]; then
+    info "Removing Wine prefix: $WINE_PREFIX"
+    _safe_rm "$WINE_PREFIX"
 else
-    warn "No Wine prefix found at ${HOME}/.Microsoft_Office_365"
+    warn "No Wine prefix found at $WINE_PREFIX"
 fi
 
 # ---- Remove launcher wrappers ------------------------------------------------

@@ -351,3 +351,57 @@ git push origin --tags --force
 | D018 | Document Method 2 limitation honestly | Better UX than leaving users hanging; recommends alternatives | Yes — can remove once fixed |
 
 ---
+
+### 2026-06-16 — v2.1.3 Security Audit Patch Application (Kimi Agent)
+**Author:** aldobox (via OpenCode agent)
+**Scope:** `install.sh`, `uninstall.sh`, `office365_vm_extractor.sh`, `office365_direct_downloader.sh`
+**Trigger:** Comprehensive security audit by Kimi Agent identified 18 new issues and 44 documentation discrepancies. Operator required subagent-assisted research, patch dry-run validation, and user-gated decisions before application.
+
+#### Changes
+- [x] `uninstall.sh` — Hardened with `set -euo pipefail`; replaced dangerous `pkill -9 -f` with `pkill -x`; added `_safe_rm()` guard function
+- [x] `office365_direct_downloader.sh` — Reduced `timeout` from 7200s to 1800s; added Wine version check; kept `WINEARCH=win32` (operator decision)
+- [x] `install.sh` — Replaced predictable `/tmp` logfile with `mktemp`; added INT/TERM signal trap for cleanup; fixed `tail -f` → `tail -n` (2 locations); added `perl` fallback for URL decoding; added `timeout` availability check; enforced mandatory SHA256 in Method 1 (was optional)
+- [x] `install.sh` — Removed Z:/D:/E: Wine dosdevice symlinks (root filesystem exposure, media, and home directory)
+- [x] `install.sh` — Wrapped ALL Wine/registry/winetricks calls in `phase_b_wine_prefix` with `run_as_user` for privilege dropping; hardened `run_as_user()` with `--preserve-env=WINE,WINEPREFIX,WINEARCH`; added `CURRENT_USER`/`CURRENT_HOME` empty-string validation
+- [x] `office365_vm_extractor.sh` — Changed disk interface from `if=virtio` to `if=ide` (Windows 11 could not see virtio disk); downgraded KVM prerequisite from `die` to `warn` with TCG fallback; removed dead OVMF code; added `local disk_path` in `phase_7_start_stage2`; documented Strategy C (`q35` + OVMF) as fallback comment block
+- [x] Version string bumped from `2.1.1` to `2.1.2` (was already partially applied in live repo)
+
+#### Rejected Changes
+- `WINEARCH=win32` → `win64` migration: Rejected per operator decision. Would break all 8 wrapper scripts, ODT XML configs, and isolated Wine build. Decision D002 stands.
+- USB storage boot (Patch 02 hunk): Rejected. SeaBIOS treats USB mass storage as HDD, not CD-ROM. El Torito boot fails. Strategy B (`-cdrom`) retained.
+- `--enable-win32on64=no` removal: Rejected. Isolated Wine 9.7 build requires this flag for 32-bit prefix support.
+- Patch 01 (version fixes): Already applied in live repo, skipped.
+
+#### Issues Found / Fixed
+- **CRITICAL:** Root filesystem exposed via Wine Z: drive (`ln -s /`). Fixed by removing Z:/D:/E: symlinks.
+- **CRITICAL:** No SHA256 for Wine 9.7 download. Partial fix: `mktemp` logfile + `timeout` check applied. SHA256 embedding deferred to operator (needs known-good hash).
+- **CRITICAL:** VM extractor hard-died on missing KVM. Fixed: `die` → `warn` with TCG fallback note.
+- **HIGH:** `uninstall.sh` killed unrelated processes (`pkill -9 -f wine`). Fixed: `pkill -x` exact match.
+- **HIGH:** `run_as_user()` defined but never called in `phase_b`. Fixed: All wine/reg/winetricks calls wrapped.
+- **MEDIUM:** Predictable `/tmp` logfiles → symlink attack. Fixed: `mktemp` for `LOGFILE`.
+- **MEDIUM:** `tail -f` pipeline hangs after wget finishes. Fixed: `tail -n` (2 locations).
+- **LOW:** Python3 hardcoded in browser wrapper. Fixed: Added `perl` + bare-sed fallback.
+
+#### Additional Attack Vectors Discovered (Beyond Audit)
+1. Predictable `/tmp/wine-9.7.tar` — TOCTOU symlink overwrite (HIGH)
+2. Method 4 ODT + Office IMG downloads have zero SHA256 verification (CRITICAL)
+3. Inline `winebrowser-wrapper.sh` less safe than checked-in file (MEDIUM)
+4. No sandbox anywhere — symlink fixes are only partial mitigation (HIGH architectural)
+5. `sudo -u` fallback strips `WINEPREFIX` env unless `--preserve-env` is used (MEDIUM — fixed)
+
+#### Service State
+- No persistent services. Pure Bash repository.
+- All scripts pass `bash -n` syntax validation.
+- `uninstall.sh` `_safe_rm` guards tested: rejected `/`, `""`, `.`, `..` correctly.
+- QEMU command-line verified: `if=ide` present, `-cdrom` preserved, Strategy C fallback comments present.
+
+#### Decision Registry
+| ID | Decision | Rationale | Reversible |
+|----|----------|-----------|------------|
+| D019 | Keep `WINEARCH=win32` | Operator decision. Migration to win64 requires wrapper/ODT/isolated-Wine synchronization. | Yes — future migration possible |
+| D020 | Strategy B (`pc` + `-cdrom` + `if=ide`) as primary VM boot | Minimal change. Fixes disk visibility. USB approach rejected as architecturally incompatible with SeaBIOS. | Yes — can switch to Strategy C if B stalls |
+| D021 | Document Strategy C (`q35` + OVMF) as fallback comments | Non-intrusive. Enables operator testing without script changes. Requires `ovmf` package. | Yes — can be removed or promoted |
+| D022 | Remove Z:/D:/E: dosdevice symlinks | Major security gain. Root FS, media, and home no longer exposed to Wine processes. | Yes — can re-add with restricted paths |
+| D023 | Mandatory SHA256 in Method 1 | Prevents arbitrary code execution from untrusted URLs. Minor UX friction. | Yes — can make optional again |
+
+---

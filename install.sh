@@ -33,6 +33,8 @@ current_user() {
 }
 CURRENT_USER=$(current_user)
 CURRENT_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6 || echo "$HOME")
+[ -z "$CURRENT_USER" ] && die "Failed to detect current user."
+[ -z "$CURRENT_HOME" ] && die "Failed to detect current home directory."
 
 # ---- Configuration ----------------------------------------------------------
 WINE_PREFIX="${CURRENT_HOME}/.Microsoft_Office_365"
@@ -44,7 +46,7 @@ APP_DIR="/usr/share/applications"
 FONT_DIR="/usr/share/fonts/Windows"
 LAUNCHER_DIR="/opt/launchers"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOGFILE="/tmp/office365_installer.log"
+LOGFILE="$(mktemp /tmp/office365_installer.XXXXXX.log)"
 
 # Windows VM Configuration (for Method 2)
 VM_NAME="office365-extractor"
@@ -63,6 +65,9 @@ WINE_CMD="wine"
 WINESERVER_CMD="wineserver"
 WINEPATH_CMD="winepath"
 NEEDS_ISOLATED_WINE=false
+
+# Signal handling for cleanup
+trap 'echo "[WARN] Interrupted. Cleaning up..."; rm -f "\$LOGFILE"; exit 130' INT TERM
 
 # ---- Helpers ----------------------------------------------------------------
 info()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
@@ -106,7 +111,7 @@ run_as_user() {
         if command -v runuser >/dev/null 2>&1; then
             runuser -u "$CURRENT_USER" -- "$@"
         else
-            sudo -u "$CURRENT_USER" -- "$@"
+            sudo -u "$CURRENT_USER" --preserve-env=WINE,WINEPREFIX,WINEARCH -- "$@"
         fi
     else
         "$@"
@@ -565,7 +570,7 @@ phase_a1_download_isolated_wine() {
     # Attempt 1: Download from GitHub Release
     info "Attempting download from GitHub Release..."
     if command -v wget >/dev/null 2>&1; then
-        wget --timeout=60 --tries=2 --progress=bar:force -O "${wine_zst}" "${github_release_url}" 2>&1 | tail -f -n +6
+        wget --timeout=60 --tries=2 --progress=bar:force -O "${wine_zst}" "${github_release_url}" 2>&1 | tail -n +6
     elif command -v curl >/dev/null 2>&1; then
         curl -L --max-time 60 --retry 2 --progress-bar -o "${wine_zst}" "${github_release_url}"
     fi
@@ -688,7 +693,13 @@ URL="$1"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] INTERCEPTED: $URL" >> "$LOGFILE"
 
 if echo "$URL" | grep -q "redirect_uri="; then
-    REDIRECT_URI=$(echo "$URL" | sed 's/.*redirect_uri=//;s/&.*//' | python3 -c "import sys,urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" 2>/dev/null || echo "EXTRACTION_FAILED")
+    if command -v python3 >/dev/null 2>&1; then
+        REDIRECT_URI=$(echo "$URL" | sed 's/.*redirect_uri=//;s/&.*//' | python3 -c "import sys,urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" 2>/dev/null || echo "EXTRACTION_FAILED")
+    elif command -v perl >/dev/null 2>&1; then
+        REDIRECT_URI=\$(echo "\\$URL" | sed 's/.*redirect_uri=//;s/&.*//' | perl -MURI::Escape -ne 'print uri_decode(\$_)' 2>/dev/null || echo "EXTRACTION_FAILED")
+    else
+        REDIRECT_URI=$(echo "$URL" | sed 's/.*redirect_uri=//;s/&.*//')
+    fi
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] REDIRECT_URI: $REDIRECT_URI" >> "$LOGFILE"
 fi
 
@@ -716,17 +727,17 @@ phase_b_wine_prefix() {
     local wineserver_init="${WINESERVER_CMD}"
 
     info "Initializing prefix with: ${wine_init}"
-    "${wine_init}" wineboot --init
+    run_as_user "${wine_init}" wineboot --init
 
     # Set Windows 8.1 (NOT 7 or 10) — forces MSAL to skip WAM and use browser fallback
     # MSAL checks Windows version: WAM requires Windows 10+
     # On Windows 8.1, MSAL falls back to browser-based OAuth2 with http://localhost redirect
-    "${wine_init}" reg add "HKCU\\Software\\Wine" /v Version /d "win81" /f || true
+    run_as_user "${wine_init}" reg add "HKCU\\Software\\Wine" /v Version /d "win81" /f || true
 
     # Registry tweaks required for Office 365 stability on Wine
     info "Applying Wine registry tweaks for Office compatibility..."
-    "${wine_init}" reg add "HKCU\\Software\\Wine\\Direct2D" /v max_version_factory /d "0" /f || true
-    "${wine_init}" reg add "HKCU\\Software\\Wine\\Direct3D" /v MaxVersionGL /d "30002" /f || true
+    run_as_user "${wine_init}" reg add "HKCU\\Software\\Wine\\Direct2D" /v max_version_factory /d "0" /f || true
+    run_as_user "${wine_init}" reg add "HKCU\\Software\\Wine\\Direct3D" /v MaxVersionGL /d "30002" /f || true
 
     # CRITICAL: Override HTTP handler to intercept MSAL browser launch
     # This routes auth URLs to our custom wrapper which opens them in Linux browser
@@ -741,9 +752,9 @@ phase_b_wine_prefix() {
     if [[ -f "${wrapper_script}" ]]; then
         info "Registering custom HTTP handler for MSAL browser fallback..."
         local win_wrapper_path
-        win_wrapper_path=$("${wine_init}" winepath -w "${wrapper_script}" 2>/dev/null) || true
+        win_wrapper_path=$(run_as_user "${wine_init}" winepath -w "${wrapper_script}" 2>/dev/null) || true
         if [[ -n "${win_wrapper_path}" ]]; then
-            "${wine_init}" reg add "HKEY_CLASSES_ROOT\\http\\shell\\open\\command" /ve /d "\"${win_wrapper_path}\" \"%1\"" /f || true
+            run_as_user "${wine_init}" reg add "HKEY_CLASSES_ROOT\\http\\shell\\open\\command" /ve /d "\"${win_wrapper_path}\" \"%1\"" /f || true
             info "HTTP handler registered: ${win_wrapper_path}"
         else
             warn "Could not convert wrapper path to Windows format. Auth fallback may not work."
@@ -754,15 +765,15 @@ phase_b_wine_prefix() {
 
     # Extra insurance: disable WAM via Office registry keys
     info "Disabling WAM/ADAL to force browser-based authentication..."
-    "${wine_init}" reg add "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /v EnableADAL /d "0" /t REG_DWORD /f || true
-    "${wine_init}" reg add "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /v DisableADALatopWAMOverride /d "1" /t REG_DWORD /f || true
-    "${wine_init}" reg add "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /v DisableAADWAM /d "1" /t REG_DWORD /f || true
+    run_as_user "${wine_init}" reg add "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /v EnableADAL /d "0" /t REG_DWORD /f || true
+    run_as_user "${wine_init}" reg add "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /v DisableADALatopWAMOverride /d "1" /t REG_DWORD /f || true
+    run_as_user "${wine_init}" reg add "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity" /v DisableAADWAM /d "1" /t REG_DWORD /f || true
 
     # Install common redistributables Office expects
     # NOTE: NO dotnet40. It causes mscoree overwrite errors and is not needed.
     info "Installing Winetricks packages (corefonts, msxml6, gdiplus)..."
     start_progress_monitor
-    WINE="${wine_init}" WINEPREFIX="${WINE_PREFIX}" winetricks -q corefonts msxml6 gdiplus || \
+    WINE="${wine_init}" WINEPREFIX="${WINE_PREFIX}" run_as_user winetricks -q corefonts msxml6 gdiplus || \
         warn "Some winetricks packages may have failed; continuing."
     stop_progress_monitor
 
@@ -771,11 +782,7 @@ phase_b_wine_prefix() {
     rm -rf "${WINE_PREFIX}/dosdevices"
     mkdir -p "${WINE_PREFIX}/dosdevices"
     ln -s ../drive_c "${WINE_PREFIX}/dosdevices/c:"
-    ln -s /          "${WINE_PREFIX}/dosdevices/z:"
     ln -s /dev/null  "${WINE_PREFIX}/dosdevices/c::"
-    ln -s /dev/null  "${WINE_PREFIX}/dosdevices/z::"
-    ln -s /media     "${WINE_PREFIX}/dosdevices/d:"
-    ln -s "${HOME}"  "${WINE_PREFIX}/dosdevices/e:"
 
     # Rebuild user folders
     info "Rebuilding user folders..."
@@ -801,7 +808,7 @@ phase_b_wine_prefix() {
     chmod -R u+rwX "${WINE_PREFIX}"
 
     # Final update of the prefix (as user)
-    "${wine_init}" wineboot -u
+    run_as_user "${wine_init}" wineboot -u
 
     info "Wine prefix created and configured."
 }
@@ -867,7 +874,7 @@ phase_c1_prebuilt() {
 
     info "Downloading Office binaries archive..."
     if command -v wget > /dev/null 2>&1; then
-        wget --progress=bar:force -O "$archive" "$USER_PROVIDED_URL" 2>&1 | tail -f -n +6
+        wget --progress=bar:force -O "$archive" "$USER_PROVIDED_URL" 2>&1 | tail -n +6
     else
         curl -L --progress-bar -o "$archive" "$USER_PROVIDED_URL"
     fi
@@ -1189,6 +1196,12 @@ phase_j_report() {
 # ---- Main Orchestrator ------------------------------------------------------
 main() {
     > "$LOGFILE"
+
+    # Verify timeout command is available
+    if ! command -v timeout >/dev/null 2>&1; then
+        warn "'timeout' command not found. Install coreutils for timeout support."
+    fi
+
     log "Installer v2.1.2 started"
 
     # Phase 0: Consent banner + method selection

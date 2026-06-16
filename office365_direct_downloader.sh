@@ -299,13 +299,23 @@ phase_7_attempt_configure() {
         wineboot --init || warn "wineboot init had issues, continuing..."
     fi
 
+    # Early Wine version check
+    local wine_version
+    wine_version=$(wine --version 2>/dev/null | grep -oP 'wine-\K[0-9]+\.[0-9]+' || echo "")
+    if [[ -z "$wine_version" ]]; then
+        warn "Wine not found or version could not be determined."
+        warn "Install Wine or set WINE_CMD environment variable."
+    else
+        info "Detected Wine version: $wine_version"
+    fi
+
     info "Running: wine setup.exe /configure config.xml"
     info "This may take 20-40 minutes. Do not interrupt."
     log "Starting wine setup.exe /configure"
 
     # Run configure with timeout (2 hours) in background so we can poll
     local configure_log="/tmp/office365_wine_configure.log"
-    timeout 7200 wine "$setup_exe" /configure "$config_xml" > "$configure_log" 2>&1 &
+    timeout 1800 wine "$setup_exe" /configure "$config_xml" > "$configure_log" 2>&1 &
     local configure_pid=$!
 
     # Poll for completion with progress dots
