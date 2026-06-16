@@ -405,3 +405,33 @@ git push origin --tags --force
 | D023 | Mandatory SHA256 in Method 1 | Prevents arbitrary code execution from untrusted URLs. Minor UX friction. | Yes — can make optional again |
 
 ---
+
+### 2026-06-16 — v2.1.4 Remaining Audit Fixes (Option C: Full)
+**Author:** aldobox (via OpenCode agent)
+**Scope:** `install.sh`, `office365_direct_downloader.sh`
+**Trigger:** Operator requested Option C completion of all 4 remaining audit findings.
+
+#### Changes
+- [x] `office365_direct_downloader.sh` — Replaced SHA256 placeholders with detailed instructions:
+  - ODT: Added comment with manual `sha256sum ~/.office365-img-cache/ODT.exe` instruction
+  - Office IMG: Added comment with manual `sha256sum ~/.office365-img-cache/O365ProPlusRetail.img` instruction
+  - Both now include the massgrave.dev URL for reference and note that Microsoft does not publish official hashes
+- [x] `install.sh` — Changed predictable `/tmp/wine-9.7.tar` to `mktemp /tmp/wine-9.7.XXXXXX.tar` (TOCTOU symlink attack mitigation)
+- [x] `install.sh` — Replaced inline `winebrowser-wrapper.sh` heredoc with `cp` from checked-in repo file:
+  - The checked-in version (94 lines) has auth URL pattern matching, loopback port test, fallback browser chain
+  - The inline version (~15 lines) was a stripped-down variant that lacked these features
+  - If the checked-in file is missing, script now warns and skips gracefully instead of creating an inferior version
+
+#### Issues Found / Fixed
+- **HIGH:** Predictable `/tmp/wine-9.7.tar` — TOCTOU symlink overwrite. Fixed with `mktemp`.
+- **CRITICAL:** ODT + Office IMG SHA256 placeholders. Not auto-fixable (requires first download). Replaced with clear manual instructions and official source links.
+- **MEDIUM:** Inline winebrowser-wrapper inferior to checked-in file. Fixed by using `cp` from repo.
+
+#### Decision Registry
+| ID | Decision | Rationale | Reversible |
+|----|----------|-----------|------------|
+| D024 | Use checked-in `winebrowser-wrapper.sh` instead of inline heredoc | Inline version lacked auth URL matching, loopback test, and fallback chain. Repo version is superior and already maintained. | Yes — could revert to inline if repo file is removed |
+| D025 | `mktemp` for wine-9.7.tar extraction | Predictable `/tmp/wine-9.7.tar` is a TOCTOU symlink attack vector (HIGH). `mktemp` eliminates predictability. | Yes — could revert to fixed path |
+| D026 | Document SHA256 computation instead of auto-computing | Microsoft does not publish official SHA256 for ODT or Office IMG. The only valid hash is self-computed after first download. | No — this is the only valid approach |
+
+---

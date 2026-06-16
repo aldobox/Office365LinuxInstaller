@@ -22,16 +22,22 @@ LOGFILE="/tmp/office365_direct_downloader.log"
 
 # Office Deployment Tool (ODT) — from Microsoft
 ODT_URL="https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_17830-20162.exe"
-# TODO: Compute SHA256 after first download
-ODT_SHA256="PLACEHOLDER_UPDATE_AFTER_FIRST_DOWNLOAD"
+# NOTE: SHA256 must be computed after first download. Microsoft does not publish
+# an official hash for the ODT. To obtain it, run the script once, then:
+#   sha256sum ~/.office365-img-cache/ODT.exe
+# Paste the result below and re-run for verification on subsequent installs.
+ODT_SHA256="PLACEHOLDER_COMPUTE_AFTER_FIRST_DOWNLOAD"
 
 # Office C2R Offline IMG — O365ProPlusRetail en-us
 # Microsoft CDN URL. To change language, swap the /en-us/ segment.
 # See https://massgrave.dev/office_c2r_links for other languages.
 OFFICE_IMG_URL="https://officecdn.microsoft.com/db/492350f6-3a01-4f97-b9c0-c7c6ddf67d60/media/en-us/O365ProPlusRetail.img"
 OFFICE_IMG_NAME="O365ProPlusRetail.img"
-# TODO: Compute SHA256 after first download
-OFFICE_IMG_SHA256="PLACEHOLDER_UPDATE_AFTER_FIRST_DOWNLOAD"
+# NOTE: SHA256 must be computed after first download. Microsoft does not publish
+# an official hash for the offline IMG. To obtain it, run the script once, then:
+#   sha256sum ~/.office365-img-cache/O365ProPlusRetail.img
+# Paste the result below and re-run for verification on subsequent installs.
+OFFICE_IMG_SHA256="PLACEHOLDER_COMPUTE_AFTER_FIRST_DOWNLOAD"
 
 # ---- Helpers ----------------------------------------------------------------
 info() { echo -e "\033[1;34m[INFO]\033[0m $*"; }

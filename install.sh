@@ -654,9 +654,11 @@ phase_a1_download_isolated_wine() {
         if command -v unzstd >/dev/null 2>&1; then
             tar --use-compress-program=unzstd -xf "${wine_zst}" -C "${extract_tmp}"
         elif command -v zstd >/dev/null 2>&1; then
-            zstd -d "${wine_zst}" -o /tmp/wine-9.7.tar && \
-                tar -xf /tmp/wine-9.7.tar -C "${extract_tmp}" && \
-                rm -f /tmp/wine-9.7.tar
+            local tmp_tar
+            tmp_tar=$(mktemp /tmp/wine-9.7.XXXXXX.tar)
+            zstd -d "${wine_zst}" -o "${tmp_tar}" && \
+                tar -xf "${tmp_tar}" -C "${extract_tmp}" && \
+                rm -f "${tmp_tar}"
         else
             die "zstd/unzstd not installed. Cannot extract Wine 9.7 archive."
         fi
@@ -686,28 +688,16 @@ phase_a2_create_browser_wrapper() {
     log "Phase A2: Browser wrapper"
 
     mkdir -p "${CURRENT_HOME}/.wine-msoffice"
-    cat > "${CURRENT_HOME}/.wine-msoffice/winebrowser-wrapper.sh" <<'EOF'
-#!/bin/bash
-LOGFILE="/tmp/office_auth_url.log"
-URL="$1"
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] INTERCEPTED: $URL" >> "$LOGFILE"
 
-if echo "$URL" | grep -q "redirect_uri="; then
-    if command -v python3 >/dev/null 2>&1; then
-        REDIRECT_URI=$(echo "$URL" | sed 's/.*redirect_uri=//;s/&.*//' | python3 -c "import sys,urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" 2>/dev/null || echo "EXTRACTION_FAILED")
-    elif command -v perl >/dev/null 2>&1; then
-        REDIRECT_URI=\$(echo "\\$URL" | sed 's/.*redirect_uri=//;s/&.*//' | perl -MURI::Escape -ne 'print uri_decode(\$_)' 2>/dev/null || echo "EXTRACTION_FAILED")
+    # Use the checked-in winebrowser-wrapper.sh (superior to inline version)
+    if [[ -f "${SCRIPT_DIR}/winebrowser-wrapper.sh" ]]; then
+        cp "${SCRIPT_DIR}/winebrowser-wrapper.sh" "${CURRENT_HOME}/.wine-msoffice/winebrowser-wrapper.sh"
+        chmod +x "${CURRENT_HOME}/.wine-msoffice/winebrowser-wrapper.sh"
+        log "Phase A2: Browser wrapper copied from repo"
     else
-        REDIRECT_URI=$(echo "$URL" | sed 's/.*redirect_uri=//;s/&.*//')
+        warn "winebrowser-wrapper.sh not found in repo. MSAL auth fallback may not work."
+        log "Phase A2: winebrowser-wrapper.sh missing — skipping"
     fi
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] REDIRECT_URI: $REDIRECT_URI" >> "$LOGFILE"
-fi
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Opening via xdg-open..." >> "$LOGFILE"
-xdg-open "$URL" &
-EOF
-    chmod +x "${CURRENT_HOME}/.wine-msoffice/winebrowser-wrapper.sh"
-    log "Phase A2: Browser wrapper created"
 }
 
 # ---- Phase B: Create Clean Wine Prefix --------------------------------------
