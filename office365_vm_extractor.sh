@@ -4,7 +4,7 @@ set -euo pipefail
 # =============================================================================
 # Office365 VM Extractor
 # Creates a headless Windows 11 VM, runs ODT inside it, extracts Office binaries
-# Version: 2.1.2
+# Version: 2.1.3
 # =============================================================================
 
 # ---- Configuration ----------------------------------------------------------
@@ -756,7 +756,7 @@ phase_10_report() {
 # ---- Main ------------------------------------------------------------------
 main() {
     > "$LOGFILE"
-    log "VM Extractor v2.1.2 started"
+    log "VM Extractor v2.1.3 started"
 
     phase_1_prerequisites
     phase_2_download_iso

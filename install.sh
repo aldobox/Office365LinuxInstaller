@@ -23,7 +23,7 @@ trap '
 # =============================================================================
 # Office365LinuxInstaller
 # Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu/Debian
-# Version: 2.1.2
+# Version: 2.1.3
 # =============================================================================
 
 # ---- User Detection (for privilege dropping) ------------------------------
@@ -125,7 +125,7 @@ phase_0_consent_and_method() {
 
     echo "╔══════════════════════════════════════════════════════════════════════════════╗"
     echo "║                                                                              ║"
-    echo "║           Office365LinuxInstaller v2.1.2 — Installation Wizard                 ║"
+    echo "║           Office365LinuxInstaller v2.1.3 — Installation Wizard                 ║"
     echo "║                                                                              ║"
     echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo
@@ -133,7 +133,7 @@ phase_0_consent_and_method() {
     echo "═══════════════════════════════════════════════════════════════════════════════"
     echo
     echo "This installer will set up Microsoft Office 365 on your Linux system using"
-    echo "one of three methods. Before you choose, please understand what will happen:"
+    echo "one of four methods. Before you choose, please understand what will happen:"
     echo
     echo "┌─────────────────────────────────────────────────────────────────────────────┐"
     echo "│ METHOD 1: Download from Trusted Source (FAST — ~5 minutes)                  │"
@@ -1202,7 +1202,7 @@ main() {
         warn "'timeout' command not found. Install coreutils for timeout support."
     fi
 
-    log "Installer v2.1.2 started"
+    log "Installer v2.1.3 started"
 
     # Phase 0: Consent banner + method selection
     phase_0_consent_and_method
