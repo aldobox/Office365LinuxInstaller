@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# pre-push hook — run the local gates before pushing.
+# Enable with: git config core.hooksPath .githooks
+set -euo pipefail
+
+if [[ -x scripts/gates.sh ]]; then
+  exec scripts/gates.sh --quick
+fi
+
+exit 0
