@@ -4,7 +4,6 @@ set -euo pipefail
 # =============================================================================
 # Office365 VM Extractor
 # Creates a headless Windows 11 VM, runs ODT inside it, extracts Office binaries
-# Version: 2.1.3
 # =============================================================================
 
 # ---- Configuration ----------------------------------------------------------
@@ -18,6 +17,9 @@ WIN_PASS="Office365!"
 EXTRACTED_DIR="${HOME}/.office365-extracted"
 DOWNLOADS="${HOME}/Downloads"
 LOGFILE="/tmp/office365_vm_extractor.log"
+
+# Version is derived from the git tag — never hardcoded.
+VERSION="$(git describe --tags --always 2>/dev/null || cat "$(dirname "$0")/VERSION" 2>/dev/null || echo 0.0.0-unknown)"
 
 # Windows 11 Consumer ISO (direct Microsoft CDN link)
 # Source: massgrave.dev / Microsoft's official static distribution CDN
@@ -756,7 +758,7 @@ phase_10_report() {
 # ---- Main ------------------------------------------------------------------
 main() {
     > "$LOGFILE"
-    log "VM Extractor v2.1.3 started"
+    log "VM Extractor v${VERSION} started"
 
     phase_1_prerequisites
     phase_2_download_iso

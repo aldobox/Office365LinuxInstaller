@@ -12,13 +12,15 @@ set -euo pipefail
 # files remain available for installation on a real Windows system.
 #
 # Source: https://massgrave.dev/office_c2r_links
-# Version: 2.1.3
 # =============================================================================
 
 # ---- Configuration ----------------------------------------------------------
 IMG_CACHE_DIR="${HOME}/.office365-img-cache"
 EXTRACTED_DIR="${HOME}/.office365-extracted"
 LOGFILE="/tmp/office365_direct_downloader.log"
+
+# Version is derived from the git tag — never hardcoded.
+VERSION="$(git describe --tags --always 2>/dev/null || cat "$(dirname "$0")/VERSION" 2>/dev/null || echo 0.0.0-unknown)"
 
 # Office Deployment Tool (ODT) — from Microsoft
 ODT_URL="https://download.microsoft.com/download/2/7/A/27AF1BE6-DD20-4CB4-B154-EBAB8A7D4A7E/officedeploymenttool_17830-20162.exe"
@@ -419,7 +421,7 @@ phase_8_report() {
 
 # ---- Main -------------------------------------------------------------------
 main() {
-    log "=== Office365 Direct Downloader (Method 4 BETA) started ==="
+    log "=== Office365 Direct Downloader (Method 4 BETA) v${VERSION} started ==="
 
     phase_1_prerequisites
     phase_2_download_odt
