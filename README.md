@@ -3,7 +3,7 @@
 Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu / Debian-based distributions (Xubuntu, Linux Mint, Pop!_OS, etc.).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.1.2-blue.svg)](https://github.com/aldobox/Office365LinuxInstaller/releases/tag/v2.1.2)
+[![Version](https://img.shields.io/badge/version-2.1.4-blue.svg)](https://github.com/aldobox/Office365LinuxInstaller/releases/tag/v2.1.4)
 
 ## What This Is
 
@@ -91,49 +91,6 @@ This project provides an automated installer that supports **four installation m
 
 When you first open Word, Excel, etc., you will be prompted to **sign in with your Microsoft account**. Use the same account associated with your Microsoft 365 subscription.
 
-## Project Structure
-
-```
-Office365LinuxInstaller/
-├── install.sh          # Main installer (8 phases)
-├── uninstall.sh        # Complete removal script
-├── LICENSE             # MIT License
-├── README.md           # This file
-├── CONTRIBUTING.md     # Contribution guidelines
-├── SECURITY.md         # Security policy
-├── CODE_OF_CONDUCT.md  # Community standards
-├── AGENTS.md           # AI agent context
-├── wrappers/           # Bash launchers for each Office app
-│   ├── word365.sh
-│   ├── excel365.sh
-│   ├── powerpoint365.sh
-│   ├── outlook365.sh
-│   ├── access365.sh
-│   ├── publisher365.sh
-│   ├── onenote365.sh
-│   └── teams365.sh
-├── desktops/           # .desktop files for system menus
-│   ├── word365.desktop
-│   ├── excel365.desktop
-│   ├── powerpoint365.desktop
-│   ├── outlook365.desktop
-│   ├── access365.desktop
-│   ├── publisher365.desktop
-│   ├── onenote365.desktop
-│   └── teams365.desktop
-├── icons/              # 256x256 SVG placeholders
-│   ├── word365.svg
-│   ├── excel365.svg
-│   ├── powerpoint365.svg
-│   ├── outlook365.svg
-│   ├── access365.svg
-│   ├── publisher365.svg
-│   ├── onenote365.svg
-│   └── teams365.svg
-└── docs/               # Extended documentation
-    └── troubleshooting.md
-```
-
 ## Uninstall
 
 To completely remove Office 365 and all associated files:
@@ -179,7 +136,6 @@ Office365LinuxInstaller/
 ├── CONTRIBUTING.md               # Contribution guidelines
 ├── SECURITY.md                   # Security policy
 ├── CODE_OF_CONDUCT.md            # Community standards
-├── AGENTS.md                     # AI agent context
 ├── stub_dll/                     # WAM stub DLL (MSAL fallback)
 │   └── msalruntime.dll
 ├── wrappers/                     # Bash launchers for each Office app
