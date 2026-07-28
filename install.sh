@@ -23,7 +23,6 @@ trap '
 # =============================================================================
 # Office365LinuxInstaller
 # Clean, legal Microsoft Office 365 (Desktop) installation via Wine on Ubuntu/Debian
-# Version: 2.1.3
 # =============================================================================
 
 # ---- User Detection (for privilege dropping) ------------------------------
@@ -47,6 +46,9 @@ FONT_DIR="/usr/share/fonts/Windows"
 LAUNCHER_DIR="/opt/launchers"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOGFILE="$(mktemp /tmp/office365_installer.XXXXXX.log)"
+
+# Version is derived from the git tag — never hardcoded.
+VERSION="$(git describe --tags --always 2>/dev/null || cat "$(dirname "$0")/VERSION" 2>/dev/null || echo 0.0.0-unknown)"
 
 # Windows VM Configuration (for Method 2)
 VM_NAME="office365-extractor"
@@ -125,7 +127,7 @@ phase_0_consent_and_method() {
 
     echo "╔══════════════════════════════════════════════════════════════════════════════╗"
     echo "║                                                                              ║"
-    echo "║           Office365LinuxInstaller v2.1.3 — Installation Wizard                 ║"
+    echo "║           Office365LinuxInstaller v${VERSION} — Installation Wizard                 ║"
     echo "║                                                                              ║"
     echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo
@@ -556,7 +558,7 @@ phase_a1_download_isolated_wine() {
 
     local wine_zst="${DOWNLOADS}/wine-9.7.tar.zst"
     # GitHub Release asset in this repository (aldobox/Office365LinuxInstaller)
-    # Upload the archive to: https://github.com/aldobox/Office365LinuxInstaller/releases/tag/v2.1.0
+    # Upload the archive to the release that carries the wine-9.7 asset
     local github_release_url="https://github.com/aldobox/Office365LinuxInstaller/releases/download/v2.1.0/wine-9.7-x86_64.tar.zst"
     local build_dir="${CURRENT_HOME}/.wine-msoffice/build"
 
@@ -1192,7 +1194,7 @@ main() {
         warn "'timeout' command not found. Install coreutils for timeout support."
     fi
 
-    log "Installer v2.1.3 started"
+    log "Installer v${VERSION} started"
 
     # Phase 0: Consent banner + method selection
     phase_0_consent_and_method
