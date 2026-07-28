@@ -1,7 +1,7 @@
 # Office365LinuxInstaller — Comprehensive Technical Audit & Path Analysis
 **Document Version:** 1.1  
 **Date:** 2026-06-09  
-**Author:** AI Engineering Analysis  
+**Author:** Engineering Analysis  
 **Repository:** https://github.com/aldobox/Office365LinuxInstaller  
 **License:** MIT  
 **Scope:** Original request context, architecture review, failure analysis, web-research synthesis, unresolved issues registry, and forward recommendations
@@ -105,7 +105,6 @@ Office-365-Linux/
 ├── install.sh                 # Main orchestrator (530+ lines, 8 phases A-H)
 ├── uninstall.sh               # Safe removal (process kill, prefix delete, system cleanup)
 ├── README.md                  # Human-facing quickstart
-├── AGENTS.md                  # AI agent context (build steps, critical rules)
 ├── MANIFEST.md / .yaml        # Bill of materials
 ├── LICENSE                    # MIT
 ├── .gitignore
@@ -129,11 +128,6 @@ Office-365-Linux/
 │   └── ... (8 total)
 │
 ├── docs/                      # Extended documentation
-│
-└── debug/                     # Engineering artifacts
-    ├── engineerlog.md         # Session-by-session changes and fixes
-    ├── context.md             # Architecture + troubleshooting
-    └── logs/                  # Historical execution logs
 ```
 
 ### 2.2 Wrapper Design
@@ -318,9 +312,9 @@ wine: WINEARCH is set to 'win32' but this is not supported in wow64 mode.
 
 ## 6. Web Research Findings — 20+ Queries
 
-Research was conducted via Brave Search API across 4 parallel research agents covering Wine compatibility, C2R internals, VM feasibility, and ODT-specific fixes.
+Research was conducted via Brave Search API across four parallel workstreams covering Wine compatibility, C2R internals, VM feasibility, and ODT-specific fixes.
 
-### 5.1 Wine 10.0 + ODT Compatibility (Agent 1)
+### 5.1 Wine 10.0 + ODT Compatibility (Track 1)
 
 **Queries executed:**
 1. "Wine 10.0 wow64 Office Deployment Tool ODT win32 win64 prefix 2024 2025 2026"
@@ -340,7 +334,7 @@ Research was conducted via Brave Search API across 4 parallel research agents co
 - **Rustring Bottles Guide:** *"2019 and onwards are unfortunately not possible, or are very hard to install."*
 - **eylenburg Gist:** Recommends **against** Wine for Office 365/2024; suggests VM-based LinOffice or Winapps instead.
 
-### 5.2 C2R Internals & Extraction Feasibility (Agent 2)
+### 5.2 C2R Internals & Extraction Feasibility (Track 2)
 
 **Queries executed:**
 1. "Office Click-to-Run .cab file extract install without Windows C2R"
@@ -360,7 +354,7 @@ Research was conducted via Brave Search API across 4 parallel research agents co
   - Version enforcement and repair
 - **Feasibility verdict:** Bypassing the C2R stack is **not viable**. Even with full file extraction, Office binaries are orphaned without registry/services integration.
 
-### 5.3 VM-Based ODT Download (Agent 3)
+### 5.3 VM-Based ODT Download (Track 3)
 
 **Queries executed:**
 1. "QEMU KVM automated Windows VM headless download file script Linux 2024 2025"
@@ -379,7 +373,7 @@ Research was conducted via Brave Search API across 4 parallel research agents co
 - **CRITICAL BLOCKER:** Once files are on Linux, **they cannot be consumed by Wine.** ODT downloads C2R source files, not traditional `.msi`/`.cab` packages. C2R requires Windows services that Wine does not emulate. Community consensus: VM download → Linux is a **dead end** for Wine installation.
 - **Feasibility verdict:** VM works perfectly for *downloading* ODT files for redistribution to real Windows machines. It does **not** solve the Wine installation problem.
 
-### 5.4 Specific Wine Fixes & Working Recipes (Agent 4)
+### 5.4 Specific Wine Fixes & Working Recipes (Track 4)
 
 **Queries executed:**
 1. "wine OfficeSetup.exe Office Deployment Tool mscoree native builtin override"
